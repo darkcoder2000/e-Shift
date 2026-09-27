@@ -26,7 +26,11 @@ export const TRUTH = {
   shifts: 5,
   formants: [240, 1150, 3100],
   intakeBase: 500, intakeRpm: 0.12,
-  whineOrder: 11.5
+  // Deliberately not a half-integer. A straight-cut gear runs at a shaft
+  // speed unrelated to the crank, and that is the only reason it can be told
+  // apart from the engine's own half-order content; an order of 11.5 would
+  // be indistinguishable from it, and the analyser is right to reject one.
+  whineOrder: 13.27
 };
 
 const RES = [
@@ -118,7 +122,7 @@ export function runOnboardSelftest() {
 
   for (const want of TRUTH.formants) {
     const hit = rep.formants.find((f) => Math.abs(Math.log2(f.freq / want)) < 0.25);
-    chk(`formant ${want} Hz`, !!hit, hit ? `found at ${hit.freq} Hz (+${hit.excessDb} dB)` : 'not found');
+    chk(`formant ${want} Hz`, !!hit, hit ? `found at ${hit.freq} Hz (+${hit.gain} dB, Q ${hit.q})` : 'not found');
   }
 
   const wantIntake = TRUTH.intakeBase + rep.rpm.median * TRUTH.intakeRpm;

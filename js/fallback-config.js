@@ -2876,6 +2876,989 @@
             "duration": 0.07
           }
         }
+      },
+      "super-touring-i4": {
+        "name": "Super Touring (I4, 8500 rpm)",
+        "description": "1996 Class 2 two-litre four: 296 bhp at 8250 rpm, six-speed sequential, induction-led and very bright. Fitted to a real onboard recording.",
+        "engine": {
+          "idleRpm": 1300,
+          "maxRpm": 8700,
+          "redlineRpm": 8400,
+          "shiftUpRpm": 8100,
+          "shiftDownRpm": 4300,
+          "shiftTime": 0.07,
+          "gearRatios": [
+            2.5,
+            1.923,
+            1.551,
+            1.303,
+            1.123,
+            0.985
+          ],
+          "finalDrive": 38,
+          "enginePower": 19,
+          "engineBrake": 2.4,
+          "launchRpm": 4500,
+          "torqueCurve": [
+            [
+              0,
+              0.45
+            ],
+            [
+              3000,
+              0.72
+            ],
+            [
+              5000,
+              0.88
+            ],
+            [
+              6500,
+              0.97
+            ],
+            [
+              8250,
+              1
+            ],
+            [
+              8700,
+              0.88
+            ]
+          ],
+          "shiftDownBrakingRpm": 6800,
+          "overrunRefRpm": 4200
+        },
+        "playbackRateRange": [
+          0.5,
+          1.9
+        ],
+        "maxDetuneCents": 35,
+        "shiftDip": 0.55,
+        "formants": [
+          {
+            "freq": 449,
+            "q": 5,
+            "gain": 4.5
+          },
+          {
+            "freq": 649,
+            "q": 5,
+            "gain": 10
+          },
+          {
+            "freq": 1102,
+            "q": 4.5,
+            "gain": 4.6
+          }
+        ],
+        "tone": {
+          "base": 800,
+          "throttle": 9000,
+          "overrun": 4200,
+          "rpm": 0.62
+        },
+        "drive": {
+          "amount": 0.5,
+          "rpmCurve": [
+            [
+              0,
+              0.25
+            ],
+            [
+              4000,
+              0.55
+            ],
+            [
+              7000,
+              0.92
+            ],
+            [
+              8700,
+              1
+            ]
+          ],
+          "loadCurve": [
+            [
+              0,
+              0.1
+            ],
+            [
+              0.3,
+              0.5
+            ],
+            [
+              1,
+              1
+            ]
+          ],
+          "overrunCurve": [
+            [
+              0,
+              1
+            ],
+            [
+              1,
+              2.3
+            ]
+          ]
+        },
+        "rasp": {
+          "freq": 2800,
+          "maxGain": 7,
+          "rpmCurve": [
+            [
+              0,
+              0
+            ],
+            [
+              4000,
+              0.45
+            ],
+            [
+              8700,
+              1
+            ]
+          ],
+          "loadCurve": [
+            [
+              0,
+              0.2
+            ],
+            [
+              0.35,
+              0.55
+            ],
+            [
+              1,
+              1
+            ]
+          ],
+          "overrunCurve": [
+            [
+              0,
+              1
+            ],
+            [
+              1,
+              3
+            ]
+          ]
+        },
+        "intake": {
+          "gain": 0.34,
+          "q": 1.3,
+          "freq": {
+            "base": 244,
+            "rpm": 0.192
+          },
+          "rpmCurve": [
+            [
+              0,
+              0
+            ],
+            [
+              3000,
+              0.35
+            ],
+            [
+              6000,
+              0.8
+            ],
+            [
+              8700,
+              1
+            ]
+          ],
+          "loadCurve": [
+            [
+              0,
+              0.22
+            ],
+            [
+              0.4,
+              0.6
+            ],
+            [
+              1,
+              1
+            ]
+          ],
+          "overrunCurve": [
+            [
+              0,
+              1
+            ],
+            [
+              1,
+              0.45
+            ]
+          ],
+          "generate": {
+            "type": "noise",
+            "duration": 2.2,
+            "tilt": -0.2,
+            "seed": 770
+          }
+        },
+        "loudnessCurve": [
+          [
+            0,
+            0.5
+          ],
+          [
+            2000,
+            0.68
+          ],
+          [
+            5000,
+            0.88
+          ],
+          [
+            8700,
+            1.05
+          ]
+        ],
+        "throttleLoudnessCurve": [
+          [
+            0,
+            0.5
+          ],
+          [
+            0.25,
+            0.78
+          ],
+          [
+            0.7,
+            0.95
+          ],
+          [
+            1,
+            1
+          ]
+        ],
+        "overrunLoudnessCurve": [
+          [
+            0,
+            1
+          ],
+          [
+            1,
+            1.15
+          ]
+        ],
+        "layers": [
+          {
+            "id": "idle",
+            "gain": 1,
+            "pan": -0.06,
+            "loadCurve": [
+              [
+                0,
+                0.75
+              ],
+              [
+                0.3,
+                0.9
+              ],
+              [
+                1,
+                1
+              ]
+            ],
+            "overrunCurve": [
+              [
+                0,
+                1
+              ],
+              [
+                1,
+                0.4
+              ]
+            ],
+            "rpmCurve": [
+              [
+                0,
+                1
+              ],
+              [
+                1235,
+                1
+              ],
+              [
+                1378,
+                1
+              ],
+              [
+                1482,
+                0.62
+              ],
+              [
+                1586,
+                0.15
+              ],
+              [
+                1690,
+                0
+              ]
+            ],
+            "generate": {
+              "type": "engine",
+              "order": 2,
+              "baseRpm": 1300,
+              "duration": 0.7,
+              "harmonics": 14,
+              "tilt": -1.45,
+              "half": 0.45,
+              "noise": 0.22,
+              "noiseTilt": -1.15,
+              "shimmer": 0.14,
+              "grit": 0.12,
+              "seed": 70,
+              "oddBias": 0.8
+            }
+          },
+          {
+            "id": "low",
+            "gain": 1.02,
+            "pan": 0.05,
+            "loadCurve": [
+              [
+                0,
+                0.69
+              ],
+              [
+                0.3,
+                0.88
+              ],
+              [
+                1,
+                1
+              ]
+            ],
+            "overrunCurve": [
+              [
+                0,
+                1
+              ],
+              [
+                1,
+                0.4
+              ]
+            ],
+            "rpmCurve": [
+              [
+                988,
+                0
+              ],
+              [
+                1216,
+                0.6
+              ],
+              [
+                1520,
+                0.95
+              ],
+              [
+                1805,
+                1
+              ],
+              [
+                2014,
+                1
+              ],
+              [
+                2166,
+                0.62
+              ],
+              [
+                2318,
+                0.15
+              ],
+              [
+                2470,
+                0
+              ]
+            ],
+            "generate": {
+              "type": "engine",
+              "order": 2,
+              "baseRpm": 1900,
+              "duration": 0.84,
+              "harmonics": 15,
+              "tilt": -1.32,
+              "half": 0.36,
+              "noise": 0.26,
+              "noiseTilt": -1.15,
+              "shimmer": 0.17,
+              "grit": 0.18,
+              "seed": 71,
+              "oddBias": 0.8
+            }
+          },
+          {
+            "id": "low_mid",
+            "gain": 1.03,
+            "pan": -0.04,
+            "loadCurve": [
+              [
+                0,
+                0.63
+              ],
+              [
+                0.3,
+                0.85
+              ],
+              [
+                1,
+                1
+              ]
+            ],
+            "overrunCurve": [
+              [
+                0,
+                1
+              ],
+              [
+                1,
+                0.4
+              ]
+            ],
+            "rpmCurve": [
+              [
+                1446,
+                0
+              ],
+              [
+                1779,
+                0.6
+              ],
+              [
+                2224,
+                0.95
+              ],
+              [
+                2641,
+                1
+              ],
+              [
+                2947,
+                1
+              ],
+              [
+                3169,
+                0.62
+              ],
+              [
+                3392,
+                0.15
+              ],
+              [
+                3614,
+                0
+              ]
+            ],
+            "generate": {
+              "type": "engine",
+              "order": 2,
+              "baseRpm": 2780,
+              "duration": 0.98,
+              "harmonics": 16,
+              "tilt": -1.18,
+              "half": 0.28,
+              "noise": 0.3,
+              "noiseTilt": -1.15,
+              "shimmer": 0.2,
+              "grit": 0.25,
+              "seed": 72,
+              "oddBias": 0.8
+            }
+          },
+          {
+            "id": "mid",
+            "gain": 1.05,
+            "pan": 0.06,
+            "loadCurve": [
+              [
+                0,
+                0.57
+              ],
+              [
+                0.3,
+                0.83
+              ],
+              [
+                1,
+                1
+              ]
+            ],
+            "overrunCurve": [
+              [
+                0,
+                1
+              ],
+              [
+                1,
+                0.4
+              ]
+            ],
+            "rpmCurve": [
+              [
+                2111,
+                0
+              ],
+              [
+                2598,
+                0.6
+              ],
+              [
+                3248,
+                0.95
+              ],
+              [
+                3857,
+                1
+              ],
+              [
+                4304,
+                1
+              ],
+              [
+                4628,
+                0.62
+              ],
+              [
+                4953,
+                0.15
+              ],
+              [
+                5278,
+                0
+              ]
+            ],
+            "generate": {
+              "type": "engine",
+              "order": 2,
+              "baseRpm": 4060,
+              "duration": 1.12,
+              "harmonics": 17,
+              "tilt": -1.02,
+              "half": 0.2,
+              "noise": 0.34,
+              "noiseTilt": -1.15,
+              "shimmer": 0.24,
+              "grit": 0.32,
+              "seed": 73,
+              "oddBias": 0.8
+            }
+          },
+          {
+            "id": "high_mid",
+            "gain": 1.06,
+            "pan": -0.03,
+            "loadCurve": [
+              [
+                0,
+                0.51
+              ],
+              [
+                0.3,
+                0.8
+              ],
+              [
+                1,
+                1
+              ]
+            ],
+            "overrunCurve": [
+              [
+                0,
+                1
+              ],
+              [
+                1,
+                0.4
+              ]
+            ],
+            "rpmCurve": [
+              [
+                3089,
+                0
+              ],
+              [
+                3802,
+                0.6
+              ],
+              [
+                4752,
+                0.95
+              ],
+              [
+                5643,
+                1
+              ],
+              [
+                6296,
+                1
+              ],
+              [
+                6772,
+                0.62
+              ],
+              [
+                7247,
+                0.15
+              ],
+              [
+                7722,
+                0
+              ]
+            ],
+            "generate": {
+              "type": "engine",
+              "order": 2,
+              "baseRpm": 5940,
+              "duration": 1.26,
+              "harmonics": 18,
+              "tilt": -0.7,
+              "half": 0.09,
+              "noise": 0.4,
+              "noiseTilt": -1.15,
+              "shimmer": 0.27,
+              "grit": 0.38,
+              "seed": 74,
+              "oddBias": 0.8
+            }
+          },
+          {
+            "id": "top",
+            "gain": 1.08,
+            "pan": 0,
+            "loadCurve": [
+              [
+                0,
+                0.45
+              ],
+              [
+                0.3,
+                0.78
+              ],
+              [
+                1,
+                1
+              ]
+            ],
+            "overrunCurve": [
+              [
+                0,
+                1
+              ],
+              [
+                1,
+                0.4
+              ]
+            ],
+            "rpmCurve": [
+              [
+                4368,
+                0
+              ],
+              [
+                5376,
+                0.6
+              ],
+              [
+                6720,
+                0.95
+              ],
+              [
+                7980,
+                1
+              ],
+              [
+                10920,
+                1
+              ]
+            ],
+            "generate": {
+              "type": "engine",
+              "order": 2,
+              "baseRpm": 8400,
+              "duration": 1.4,
+              "harmonics": 18,
+              "tilt": -0.9,
+              "half": 0.17,
+              "noise": 0.45,
+              "noiseTilt": -1.15,
+              "shimmer": 0.3,
+              "grit": 0.45,
+              "seed": 75,
+              "oddBias": 0.8
+            }
+          },
+          {
+            "id": "overrun_low",
+            "gain": 0.93,
+            "pan": -0.05,
+            "loadCurve": [
+              [
+                0,
+                1
+              ],
+              [
+                0.25,
+                0.4
+              ],
+              [
+                0.55,
+                0
+              ],
+              [
+                1,
+                0
+              ]
+            ],
+            "overrunCurve": [
+              [
+                0,
+                0
+              ],
+              [
+                0.25,
+                0.55
+              ],
+              [
+                1,
+                1
+              ]
+            ],
+            "rpmCurve": [
+              [
+                1508,
+                0
+              ],
+              [
+                1856,
+                0.5
+              ],
+              [
+                2378,
+                0.9
+              ],
+              [
+                2755,
+                1
+              ],
+              [
+                3132,
+                0.9
+              ],
+              [
+                3422,
+                0.45
+              ],
+              [
+                3625,
+                0
+              ]
+            ],
+            "generate": {
+              "type": "engine",
+              "order": 2,
+              "baseRpm": 2900,
+              "duration": 0.9,
+              "harmonics": 14,
+              "tilt": -1.35,
+              "half": 0.1,
+              "noise": 0.3,
+              "noiseTilt": -1.15,
+              "shimmer": 0.2,
+              "grit": 0.12,
+              "oddBias": 0.55,
+              "seed": 160
+            }
+          },
+          {
+            "id": "overrun_high",
+            "gain": 0.95,
+            "pan": 0.04,
+            "loadCurve": [
+              [
+                0,
+                1
+              ],
+              [
+                0.25,
+                0.4
+              ],
+              [
+                0.55,
+                0
+              ],
+              [
+                1,
+                0
+              ]
+            ],
+            "overrunCurve": [
+              [
+                0,
+                0
+              ],
+              [
+                0.25,
+                0.55
+              ],
+              [
+                1,
+                1
+              ]
+            ],
+            "rpmCurve": [
+              [
+                3224,
+                0
+              ],
+              [
+                3968,
+                0.5
+              ],
+              [
+                5084,
+                0.9
+              ],
+              [
+                5890,
+                1
+              ],
+              [
+                6696,
+                0.9
+              ],
+              [
+                7316,
+                0.45
+              ],
+              [
+                7750,
+                0
+              ]
+            ],
+            "generate": {
+              "type": "engine",
+              "order": 2,
+              "baseRpm": 6200,
+              "duration": 1.2,
+              "harmonics": 16,
+              "tilt": -1.24,
+              "half": 0.05,
+              "noise": 0.34,
+              "noiseTilt": -1.15,
+              "shimmer": 0.26,
+              "grit": 0.18,
+              "oddBias": 0.45,
+              "seed": 161
+            }
+          }
+        ],
+        "whine": {
+          "gain": 0.06,
+          "order": 13.7,
+          "wave": "sawtooth",
+          "loadCurve": [
+            [
+              0,
+              0.4
+            ],
+            [
+              1,
+              1
+            ]
+          ],
+          "overrunCurve": [
+            [
+              0,
+              1
+            ],
+            [
+              1,
+              1.3
+            ]
+          ],
+          "rpmCurve": [
+            [
+              0,
+              0
+            ],
+            [
+              3000,
+              0.35
+            ],
+            [
+              8700,
+              1
+            ]
+          ]
+        },
+        "shift": {
+          "gain": 0.8,
+          "generate": {
+            "type": "clunk",
+            "thump": 150,
+            "decay": 44,
+            "noise": 0.72,
+            "tone": 0.35,
+            "duration": 0.11
+          }
+        },
+        "pop": {
+          "gain": 0.5,
+          "enabled": true,
+          "rateMax": 10,
+          "freq": 1400,
+          "freqRpm": 0.14,
+          "burstCount": 8,
+          "rpmCurve": [
+            [
+              2000,
+              0
+            ],
+            [
+              3500,
+              0.35
+            ],
+            [
+              5000,
+              0.8
+            ],
+            [
+              7000,
+              1
+            ],
+            [
+              8700,
+              1
+            ]
+          ],
+          "overrunCurve": [
+            [
+              0,
+              0
+            ],
+            [
+              0.3,
+              0.45
+            ],
+            [
+              1,
+              1
+            ]
+          ],
+          "generate": {
+            "type": "pop",
+            "decay": 65,
+            "duration": 0.085
+          }
+        }
       }
     }
   };

@@ -174,9 +174,23 @@ frame loop.
 
 ## Sound profiles (Phase 2)
 
-`soundconfig.json` is the source of truth. Three profiles ship: a turbo I4, a
-cross-plane V8 and a synthetic "e-Sound". Switch them in the header; each one
-brings its own gearbox, rev range, torque curve and mix.
+`soundconfig.json` is the source of truth. Four profiles ship: a turbo I4, a
+cross-plane V8, a synthetic "e-Sound", and a Super Touring four fitted to a
+real recording. Switch them in the header; each one brings its own gearbox,
+rev range, torque curve and mix.
+
+**Super Touring (I4, 8500 rpm)** is the odd one out and the most interesting.
+The other three were invented - every generator parameter is a guess at what
+that kind of engine ought to look like spectrally. This one was *measured*,
+from an onboard recording of a 1996 Audi A4 (B5) quattro Super Tourer, using
+`tools/analyse-sample.mjs` (below). Its rev range, shift points, gear ratio
+spacing, per-band harmonic structure, resonances and gearbox whine order all
+came out of the file; the comments in the profile mark what was measured and
+what was chosen. Three things could not be measured and say so there: the car
+never idles on track, the recording never drops below about 3900 rpm, and its
+between-harmonic floor is the camera's wind and road noise rather than
+combustion - matching that floor would have needed a `noise` around 3, seven
+times any road car, and would have put the wind inside the engine voice.
 
 Each profile has eight layers: six pitched bands (`idle`, `low`, `low_mid`,
 `mid`, `high_mid`, `top`) plus `overrun_low` and `overrun_high` for the

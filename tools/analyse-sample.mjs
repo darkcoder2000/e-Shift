@@ -95,6 +95,7 @@ export function decode(file, sr, from, to) {
   const args = ['-v', 'error', '-i', file];
   if (from != null) args.push('-ss', String(from));
   if (to != null) args.push('-to', String(to));
+  void 0;
   args.push('-vn', '-ac', '1', '-ar', String(sr), '-f', 'f32le', '-');
   const res = spawnSync('ffmpeg', args, { maxBuffer: 1 << 30 });
   if (res.error) {
@@ -109,6 +110,34 @@ export function decode(file, sr, from, to) {
   return out;
 }
 
+
+/** Decode several sections and join them.
+ *
+ *  A lap recording is mostly not the car you want: pit lane, other cars,
+ *  commentary, the camera being moved. Pointing the analyser at the whole
+ *  thing lets all of that into the averages and into the RPM track. Joining
+ *  only the named sections keeps the measurement on the material you chose.
+ *
+ *  A short silence is inserted between sections. It costs a couple of frames
+ *  and stops the join looking like a gearshift - the RPM track reads zero
+ *  across it, and both the shift finder and the frame filter drop zeros.
+ */
+export function decodeSegments(file, sr, segments) {
+  if (!segments.length) return decode(file, sr, null, null);
+  const gap = new Float32Array(Math.round(sr * 0.35));
+  const parts = [];
+  let total = 0;
+  for (const [from, to] of segments) {
+    const part = decode(file, sr, from, to);
+    parts.push(part, gap);
+    total += part.length + gap.length;
+  }
+  const out = new Float32Array(total);
+  let at = 0;
+  for (const part of parts) { out.set(part, at); at += part.length; }
+  return out;
+}
+
 /* ============================ spectral front end ======================== */
 
 const WIN = 8192;          // 170 ms at 48 kHz: 5.9 Hz bins, tolerable smear on a pull
@@ -120,8 +149,9 @@ function hann(n) {
   return w;
 }
 
-/** 25th percentile per 64-bin band, held flat across the band. A true median
- *  filter over every bin of every frame is far more than this needs. */
+/** 25th percentile per 64-bin band, held flat across the band. Used by the
+ *  f0 tracker for scoring; the harmonic measurement needs something tighter
+ *  and gets it from localFloor() below. */
 function noiseFloor(mag) {
   const B = 64, out = new Float64Array(mag.length);
   for (let b = 0; b < mag.length; b += B) {
@@ -219,6 +249,81 @@ function gapRatio(frame, f0, d, df, maxHz) {
 // reading the octave wrong; anything weaker is ordinary crank-order content.
 const GAP_SAME = 0.8;
 
+/** Running median over a window of `w` frames. */
+function movingMedian(a, w) {
+  const h = w >> 1;
+  return a.map((_, i) => median(a.slice(Math.max(0, i - h), Math.min(a.length, i + h + 1))));
+}
+
+/** Octave correction across the whole track, by shortest path.
+ *
+ *  The per-frame octave decision is made on that frame alone, and on a real
+ *  recording with strong crank-order content it flips repeatedly - the Audi
+ *  clip this was built for dropped to exactly half for runs of five to
+ *  seventeen frames, then jumped back. A median filter cannot fix that: a
+ *  seventeen-frame run outvotes any window short enough to follow a real
+ *  pull.
+ *
+ *  What does fix it is that an engine's speed is continuous. Each frame may
+ *  keep its estimate or take an octave (or third) of it, and Viterbi picks
+ *  the sequence minimising: a small cost per frame for disbelieving its own
+ *  estimate, plus a large cost for any jump between neighbouring frames
+ *  beyond what a real engine can do in 43 ms. A slipped run then pays for
+ *  its two edges however long it is, so long runs get corrected too, while
+ *  a genuine gearshift - about a quarter of an octave, spread over two or
+ *  three frames - stays comfortably inside the free allowance.
+ */
+function fixOctaves(raw, fMin, fMax) {
+  const MULT = [1 / 4, 1 / 3, 1 / 2, 1, 2, 3, 4];
+  const ALPHA = 0.15;     // per frame, for not believing its own estimate
+  const BETA = 4;         // per octave of implausible jump between frames
+  const FREE = 0.15;      // log2 change per frame that costs nothing
+  const S = MULT.length, N = raw.length;
+  if (!N) return raw;
+
+  // A multiplier that lands outside the search range is not a candidate.
+  // Without this the decoder happily walks a track to three times the
+  // engine's redline, which is what --rpm-max was given for.
+  const ok = (i, mi) => {
+    const f = raw[i] * MULT[mi];
+    return !(raw[i] > 0) || (f >= fMin * 0.98 && f <= fMax * 1.02);
+  };
+  const emit = MULT.map((m) => ALPHA * Math.abs(Math.log2(m)));
+  let cost = MULT.map((_, si) => (ok(0, si) ? (raw[0] > 0 ? emit[si] : 0) : Infinity));
+  const back = [];
+
+  for (let i = 1; i < N; i++) {
+    const prev = cost;
+    const next = new Float64Array(S);
+    const bk = new Int8Array(S);
+    for (let si = 0; si < S; si++) {
+      let best = Infinity, bestT = 0;
+      for (let ti = 0; ti < S; ti++) {
+        let step = 0;
+        if (raw[i] > 0 && raw[i - 1] > 0) {
+          const d = Math.abs(Math.log2((raw[i] * MULT[si]) / (raw[i - 1] * MULT[ti])));
+          step = BETA * Math.max(0, d - FREE);
+        }
+        const c = prev[ti] + step;
+        if (c < best) { best = c; bestT = ti; }
+      }
+      next[si] = ok(i, si) ? best + (raw[i] > 0 ? emit[si] : 0) : Infinity;
+      bk[si] = bestT;
+    }
+    cost = next;
+    back.push(bk);
+  }
+
+  let si = 0;
+  for (let k = 1; k < S; k++) if (cost[k] < cost[si]) si = k;
+  const out = new Array(N);
+  for (let i = N - 1; i >= 0; i--) {
+    out[i] = raw[i] > 0 ? raw[i] * MULT[si] : 0;
+    if (i > 0) si = back[i - 1][si];
+  }
+  return out;
+}
+
 function trackF0(frames, df, sr, opts) {
   const maxHz = Math.min(8000, sr * 0.45);
   const fMin = (opts.rpmMin / 60) * opts.order;
@@ -270,11 +375,13 @@ function trackF0(frames, df, sr, opts) {
     track.push({ t: frame.t, f0: best, score: bestScore, frame });
   }
 
-  // 5-point median on f0 - single-frame octave slips do not survive it.
-  const raw = track.map((p) => p.f0);
+  // Settle the octave across time first, then a short median to take the
+  // jitter off. Order matters: median-filtering a track that is jumping by a
+  // factor of two just smears the jumps.
+  const fixed = fixOctaves(track.map((p) => p.f0), fMin, fMax);
+  const smoothed = movingMedian(fixed, 5);
   for (let i = 0; i < track.length; i++) {
-    const lo = Math.max(0, i - 2), hi = Math.min(raw.length, i + 3);
-    track[i].f0s = median(raw.slice(lo, hi));
+    track[i].f0s = smoothed[i];
     track[i].rpm = (track[i].f0s * 60) / opts.order;
   }
   return track;
@@ -362,10 +469,30 @@ const SNR_FIT = 3;
 /** Per frame: harmonic amplitudes, half-order amplitudes and the floor
  *  between harmonics, all relative to that frame's own f0. */
 function harmonicsOf(frame, f0, df, maxHz, maxH) {
-  // A quarter of the way between partials: clear of both the firing harmonic
-  // and the crank-order one halfway between, so it really is the floor.
-  const gapAt = (f) => peakAt(frame.mag, f, df);
-  const localFloor = (f) => Math.min(gapAt(f - f0 * 0.25), gapAt(f + f0 * 0.25));
+  // The floor beside a harmonic: the typical level across the gap up to the
+  // next one, sampled rather than assumed.
+  //
+  // Both halves of this comparison have to come through peakAt, or the
+  // max-of-five-samples bias makes noise look like signal. But a fixed probe
+  // offset also fails, because it assumes where the gaps are: this engine
+  // has content every quarter of its firing frequency, and a quarter-offset
+  // probe landed on a partial every time and collapsed every SNR in the
+  // file. Sweeping the gap and taking the minimum satisfies both - same
+  // estimator on both sides, and it finds the gap wherever it happens to be.
+  // Reused across calls to keep one array instead of one per harmonic.
+  const probes = [];
+  const localFloor = (f) => {
+    probes.length = 0;
+    for (let o = 0.1; o <= 0.91; o += 0.1) {
+      if (Math.abs(o - 0.5) < 0.06) continue;          // the crank half-order lives here
+      probes.push(peakAt(frame.mag, f + o * f0, df));
+      if (f - o * f0 > 20) probes.push(peakAt(frame.mag, f - o * f0, df));
+    }
+    // Median, not minimum. The minimum of sixteen peak-picks is biased low
+    // exactly as a single peak-pick is biased high, and either bias alone is
+    // enough to move the harmonic count by 60%.
+    return Math.max(median(probes), 1e-12);
+  };
 
   // A measured partial is the partial PLUS the floor it sits on. Subtract it
   // in power - without this, a partial that is not there at all still reads
@@ -379,8 +506,7 @@ function harmonicsOf(frame, f0, df, maxHz, maxH) {
     if (f > maxHz) break;
     const fl = localFloor(f), raw = peakAt(frame.mag, f, df);
     A.push({ h, f, a: clean(raw, fl), snr: raw / Math.max(fl, 1e-12) });
-    const gap = f + f0 * 0.25;
-    if (gap < maxHz) floors.push({ h, f: gap, a: gapAt(gap) });
+    if (f + f0 * 0.5 < maxHz) floors.push({ h, f: f + f0 * 0.5, a: fl });
   }
   for (let h = 1; h <= maxH; h++) {
     const x = h - 0.5;                                       // 0.5, 1.5, 2.5 ... crank order
@@ -421,12 +547,19 @@ function fitSpec(points, sr) {
   // only: fitting the tilt across the noise beyond the last real harmonic
   // drags the slope steeply negative, and every parameter derived from tilt
   // then inherits the error.
-  const snrOf = (h) => median(snrH.get(h) || [0]);
+  // Smoothed across harmonic INDEX before the cutoff test. Engine spectra
+  // have notches - an interference dip at one or two orders - and testing
+  // raw values stops the count at the first notch: the Audi rolls off
+  // smoothly to the sixteenth harmonic but has a dip at the eighth, and the
+  // count came back as seven.
+  const rawSnr = hs.map((h) => median(snrH.get(h) || [0]));
+  const snrSm = rawSnr.map((_, i) => median(rawSnr.slice(Math.max(0, i - 1), i + 2)));
   let harmonics = 1, misses = 0;
   for (let i = 0; i < hs.length; i++) {
-    if (snrOf(hs[i]) >= SNR_PRESENT) { harmonics = hs[i]; misses = 0; }
-    else if (++misses >= 3) break;                 // a lone dropout is not the end
+    if (snrSm[i] >= SNR_PRESENT) { harmonics = hs[i]; misses = 0; }
+    else if (++misses >= 3) break;
   }
+  const snrOf = (h) => snrSm[hs.indexOf(h)] ?? 0;
 
   // Fit only where there is signal to fit. Once the floor has been subtracted,
   // a harmonic that was never there sits near zero, and log10 of near-zero
@@ -442,14 +575,24 @@ function fitSpec(points, sr) {
   const predicted = (h) => Math.pow(h, tilt);
 
   // half: crank-order content against what the tilt predicts at that index.
-  const halfRatios = [];
+  //
+  // Summed, not a median of per-order ratios. The half-orders fade into the
+  // floor long before the firing harmonics do, so most of the orders in
+  // range read zero and a median over them returns zero however loud the
+  // first few are - a generated 0.5 measured back as 0. Summing lets the low
+  // orders, which are the ones you actually hear, carry the answer.
+  let halfGot = 0, halfPred = 0;
   for (const [x, arr] of byX) {
     if (x > harmonics) continue;
-    if (median(snrX.get(x) || [0]) < SNR_PRESENT) { halfRatios.push(0); continue; }
     const pred = Math.pow(x, tilt - 0.15);
-    if (pred > 0) halfRatios.push(median(arr) / pred);
+    if (!(pred > 0)) continue;
+    halfPred += pred;
+    if (median(snrX.get(x) || [0]) >= SNR_PRESENT) halfGot += median(arr);
   }
-  const halfAmt = halfRatios.length ? median(halfRatios) : 0;
+  // Bounded. Above about 1.4 the crank orders would be louder than the
+  // firing harmonics, which does not happen; a number above that means the
+  // fit broke down, usually on a band with too few frames to average.
+  const halfAmt = Math.min(1.4, halfPred > 0 ? halfGot / halfPred : 0);
 
   // oddBias multiplies the EVEN harmonics in the generator (js/synth.js).
   const odd = [], even = [];
@@ -501,6 +644,10 @@ function fitSpec(points, sr) {
 
 /** Log-spaced average of the resonance cloud -> a smooth envelope. */
 function resonanceCurve(resF, resR, sr) {
+  // 96 log-spaced bands, ~5.5% apart. Finer than this was tried and is
+  // worse: each bin then holds too few samples, the extra noise sharpens
+  // every peak, and a resonance of known Q 3 came back as the clamped Q 8.
+  // A reported Q at the clamp means "narrower than this can resolve".
   const lo = 50, hi = Math.min(8000, sr * 0.45), bands = 96;
   const step = Math.log(hi / lo) / bands;
   const buckets = Array.from({ length: bands }, () => []);
@@ -599,21 +746,43 @@ function pickFormants(curve, want) {
   const peaks = [];
   for (let i = 1; i < curve.length - 1; i++) {
     if (dbs[i] <= dbs[i - 1] || dbs[i] < dbs[i + 1]) continue;
-    let l = i, r = i;                                        // -3 dB width, for Q
+    // -3 dB width, with the crossing interpolated between bins. Snapping to
+    // bin edges quantises the width to whole log-frequency steps, and at this
+    // curve's resolution that pins almost every Q at the same one or two
+    // values - three separate resonances came back as Q 6.07, 6.12, 6.12.
+    let l = i, r = i;
     while (l > 0 && dbs[l] > dbs[i] - 3) l--;
     while (r < curve.length - 1 && dbs[r] > dbs[i] - 3) r++;
-    const bw = Math.max(1, curve[r].f - curve[l].f);
+    const cross = (a, b) => {
+      const da = dbs[a], db2 = dbs[b], want = dbs[i] - 3;
+      if (a === b || da === db2) return Math.log(curve[a].f);
+      const t = Math.min(1, Math.max(0, (da - want) / (da - db2)));
+      return Math.log(curve[a].f) + t * (Math.log(curve[b].f) - Math.log(curve[a].f));
+    };
+    const fl = Math.exp(cross(Math.min(l + 1, i), l));
+    const fr = Math.exp(cross(Math.max(r - 1, i), r));
+    const bw = Math.max(1e-6, fr - fl);
     peaks.push({
+      n: curve[i].n,
       freq: curve[i].f,
       q: r2(Math.max(0.4, Math.min(8, curve[i].f / bw))),
-      gain: r2(Math.max(1, Math.pow(10, (dbs[i] - base) / 20))),
-      excessDb: r2(dbs[i] - base)
+      // dB, because that is what soundconfig's `formants[].gain` is: it goes
+      // straight to a peaking BiquadFilterNode's .gain, which is in dB. A
+      // linear ratio here would write +1.7 where +4.5 dB was measured and
+      // leave the resonance all but inaudible.
+      gain: r2(dbs[i] - base)
     });
   }
-  peaks.sort((a, b) => b.excessDb - a.excessDb);
+  peaks.sort((a, b) => b.gain - a.gain);
   const kept = [];
+  // A bin fed by a handful of harmonics is mostly sampling error. At the
+  // bottom of the range only h1 and h2 ever land, so without this the noise
+  // down there outranks a real resonance higher up and crowds it out of the
+  // list entirely.
+  const maxN = Math.max(...curve.map((c) => c.n));
   for (const p of peaks) {
-    if (p.excessDb < 1.5) continue;                                        // not a resonance
+    if (p.gain < 1.5) continue;                                            // not a resonance
+    if (p.n < maxN * 0.02) continue;                                       // too few samples
     if (kept.some((k) => Math.abs(Math.log2(k.freq / p.freq)) < 0.4)) continue;   // same peak twice
     kept.push(p);
     if (kept.length >= want) break;
@@ -635,10 +804,13 @@ function findWhine(points, df, sr, order) {
       if (f < 400 || f > maxHz) continue;
       if (mag[k] <= mag[k - 1] || mag[k] < mag[k + 1]) continue;
       if (mag[k] < (floor[k] || 1e-12) * 6) continue;
-      const idx = f / f0;                                       // index on the firing f0
-      if (Math.abs(idx - Math.round(idx)) < 0.18) continue;         // a firing harmonic
-      if (Math.abs(idx * 2 - Math.round(idx * 2)) < 0.18) continue; // a crank half-order
-      const key = Math.round(idx * order * 10) / 10;               // engine order
+      // Engine order: multiples of the crank speed, so the firing harmonics
+      // sit at multiples of `order` and the crank half-orders at every 0.5.
+      // Skip anything on that grid; a straight-cut gear runs at a shaft speed
+      // unrelated to it, which is exactly what makes it findable.
+      const eo = (f / f0) * order;
+      if (Math.abs(eo * 2 - Math.round(eo * 2)) < 0.25) continue;
+      const key = Math.round(eo * 10) / 10;
       hist.set(key, (hist.get(key) || 0) + 1);
     }
   }
@@ -688,7 +860,7 @@ export function analyse(samples, sr, opts) {
   const ovrFit = overrun.length >= 6 ? fitSpec(overrun, sr) : null;
   const thrCurve = thrFit ? resonanceCurve(thrFit._res.f, thrFit._res.r, sr) : [];
   const ovrCurve = ovrFit ? resonanceCurve(ovrFit._res.f, ovrFit._res.r, sr) : [];
-  const formants = pickFormants(thrCurve, 4);
+  const formants = pickFormants(thrCurve, 5);
 
   const intake = induction(onThr, overrun, sr, Math.max(rpmLo, 600), Math.max(rpmHi, 1200));
 
@@ -782,6 +954,13 @@ function suggestProfile(rep, key) {
 
 const FIT_SECONDS = 3;
 
+// The synth's `noise` is the engine's own combustion hash. The shipped
+// profiles sit at 0.2-0.42; anything past this needs the between-harmonic
+// floor of a clean engine recording to be higher than a real engine's is,
+// which in practice means the floor being measured is wind and road noise
+// instead. Matching that would put the wind inside the engine voice.
+const NOISE_MAX = 1.2;
+
 /** The instrument's reading of a generated spec - the same fields it reports
  *  for a recording, so the two are directly comparable. */
 export function measureSpec(spec, sr = 48000) {
@@ -829,11 +1008,14 @@ export function fitGenerator(target, base, sr = 48000, onStep) {
       ...spec,
       tilt: clamp(spec.tilt + 0.8 * dTilt, -2.2, -0.35),
       half: clamp(spec.half + 0.8 * dHalf, 0, 1.4),
-      noise: clamp(spec.noise * Math.pow(10, clamp(dFloor, -12, 12) / 20), 0.005, 2)
+      noise: clamp(spec.noise * Math.pow(10, clamp(dFloor, -12, 12) / 20), 0.005, NOISE_MAX)
     };
   }
   const r3v = (v) => Math.round(v * 1000) / 1000;
-  return best && { ...best, tilt: r3v(best.tilt), half: r3v(best.half), noise: r3v(best.noise) };
+  if (!best) return null;
+  const out = { ...best, tilt: r3v(best.tilt), half: r3v(best.half), noise: r3v(best.noise) };
+  if (out.noise >= NOISE_MAX - 1e-6) out._noiseCapped = true;
+  return out;
 }
 
 /* ============================== loop cutting ============================ */
@@ -948,7 +1130,9 @@ function selftest() {
 
 const USAGE = `usage: node tools/analyse-sample.mjs <audio-or-video-file> [options]
 
-  --from <t> --to <t>   analyse only this section  (12.5 or 1:20 or 1:02:03)
+  --from <t> --to <t>   analyse only this section  (12.5 or 1:20 or 1:02:03).
+                        Repeat the pair to join several sections - a lap
+                        recording is mostly not the car you want.
   --order <n>           firing events per rev; 2 = four-cylinder four-stroke,
                         3 = V6, 4 = V8/eight-cylinder   [2]
   --rpm-min/--rpm-max   search range for the RPM track  [800 10000]
@@ -966,13 +1150,17 @@ const USAGE = `usage: node tools/analyse-sample.mjs <audio-or-video-file> [optio
 You supply the file. This never downloads anything.`;
 
 function parseArgs(argv) {
-  const o = { order: 2, rpmMin: 800, rpmMax: 10000, bands: 6, sr: 48000, file: null };
+  const o = { order: 2, rpmMin: 800, rpmMax: 10000, bands: 6, sr: 48000, file: null, segments: [] };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     const next = () => argv[++i];
     if (a === '--selftest') o.selftest = true;
-    else if (a === '--from') o.from = parseTime(next());
-    else if (a === '--to') o.to = parseTime(next());
+    else if (a === '--from') o.segments.push([parseTime(next()), null]);
+    else if (a === '--to') {
+      const t = parseTime(next());
+      if (!o.segments.length) o.segments.push([null, t]);
+      else o.segments[o.segments.length - 1][1] = t;
+    }
     else if (a === '--order') o.order = Number(next());
     else if (a === '--rpm-min') o.rpmMin = Number(next());
     else if (a === '--rpm-max') o.rpmMax = Number(next());
@@ -1032,7 +1220,7 @@ function summary(rep) {
   L.push('\nFormants (fixed resonances the rev sweep uncovered)');
   if (!rep.formants.length) L.push('  none found');
   for (const f of rep.formants) {
-    L.push(`  ${String(f.freq).padStart(5)} Hz   Q ${String(f.q).padStart(4)}   gain ${f.gain}   (+${f.excessDb} dB)`);
+    L.push(`  ${String(f.freq).padStart(5)} Hz   Q ${String(f.q).padStart(4)}   gain +${f.gain} dB`);
   }
 
   L.push('\nInduction');
@@ -1068,7 +1256,10 @@ function main() {
   if (!existsSync(opts.file)) { console.error('no such file: ' + opts.file); process.exit(1); }
 
   process.stderr.write('decoding...\n');
-  const samples = decode(opts.file, opts.sr, opts.from, opts.to);
+  const samples = decodeSegments(opts.file, opts.sr, opts.segments);
+  if (opts.segments.length > 1) {
+    process.stderr.write('  ' + opts.segments.length + ' sections joined\n');
+  }
   process.stderr.write(`  ${(samples.length / opts.sr).toFixed(1)} s\nanalysing...\n`);
   const rep = analyse(samples, opts.sr, opts);
 
@@ -1080,7 +1271,7 @@ function main() {
     process.stderr.write('solving for generator settings (closed loop)...\n');
     // Fitting a band the car barely drove through just launches the solver at
     // a bad target; it walks into the clamp and reports that as an answer.
-    const MIN_FRAMES = 15, MIN_HARMONICS = 8;
+    const MIN_FRAMES = 100, MIN_HARMONICS = 4;
     const weak = rep.bands.filter((b) => b.fit
       && (b.covered < MIN_FRAMES || b.fit.harmonics < MIN_HARMONICS));
     for (const b of weak) {
@@ -1102,7 +1293,11 @@ function main() {
         { tilt: fit.tilt, half: fit.half, floorDb: fit.floorDb }, base, opts.sr);
       if (band) band.fitted = solved; else rep.overrunFitted = solved;
       process.stderr.write(`  ${String(baseRpm).padStart(5)} rpm  tilt ${solved.tilt}`
-        + `  half ${solved.half}  noise ${solved.noise}\n`);
+        + `  half ${solved.half}  noise ${solved.noise}`
+        + (solved._noiseCapped
+          ? '   <- capped; the floor in this recording is louder than an engine'
+            + ' makes, so the rest of it is wind and road'
+          : '') + '\n');
     }
   }
 
