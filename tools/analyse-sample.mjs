@@ -468,25 +468,45 @@ const SNR_FIT = 3;
 
 /** Per frame: harmonic amplitudes, half-order amplitudes and the floor
  *  between harmonics, all relative to that frame's own f0. */
-function harmonicsOf(frame, f0, df, maxHz, maxH) {
+function harmonicsOf(frame, f0, df, maxHz, maxH, order) {
   // The floor beside a harmonic: the typical level across the gap up to the
   // next one, sampled rather than assumed.
   //
   // Both halves of this comparison have to come through peakAt, or the
-  // max-of-five-samples bias makes noise look like signal. But a fixed probe
-  // offset also fails, because it assumes where the gaps are: this engine
-  // has content every quarter of its firing frequency, and a quarter-offset
-  // probe landed on a partial every time and collapsed every SNR in the
-  // file. Sweeping the gap and taking the minimum satisfies both - same
-  // estimator on both sides, and it finds the gap wherever it happens to be.
+  // max-of-five-samples bias makes noise look like signal. Where to sample
+  // is the harder half. Probing at fixed fractions of f0 assumes where the
+  // gaps are, and that assumption is order-dependent: a V8 fires four times
+  // per revolution, so an engine order sits at every quarter of f0, and a
+  // probe at 0.2 or 0.3 f0 lands in the skirt of a real partial. That
+  // collapsed every SNR in a V8 clip - all six rev bands fell back to the
+  // default tilt because fewer than three harmonics cleared their own floor.
+  //
+  // So keep sweeping the gap and taking the median, but sweep only the parts
+  // of it that ARE gaps: a dense set of offsets with a guard band removed
+  // around every whole ENGINE order, which is where an engine puts its
+  // content whatever its cylinder count. Measured on a known layer, the
+  // offsets left over read 10-20 dB below the whole orders either side.
+  //
+  // Two bounds matter. Offsets closer than 2.5 bins are dropped, because the
+  // window cannot separate those from the harmonic itself. And the span
+  // stays near one f0 either side: a floor sampled three harmonics away is
+  // not a local floor, and on a resonance it reads the slope instead of the
+  // gap.
+  const fr = f0 / order;                               // crank rotation, Hz
+  const offs = [];
+  for (let n = 0.125; n * fr <= 1.1 * f0 + 1e-9; n += 0.125) {
+    if (Math.abs(n - Math.round(n)) < 0.2) continue;   // a whole engine order lives here
+    if (n * fr < 2.5 * df) continue;                   // unresolvable at this f0
+    offs.push(n * fr);
+  }
+  if (!offs.length) offs.push(Math.max(2.5 * df, 0.5 * fr));   // low f0: best we can do
   // Reused across calls to keep one array instead of one per harmonic.
   const probes = [];
   const localFloor = (f) => {
     probes.length = 0;
-    for (let o = 0.1; o <= 0.91; o += 0.1) {
-      if (Math.abs(o - 0.5) < 0.06) continue;          // the crank half-order lives here
-      probes.push(peakAt(frame.mag, f + o * f0, df));
-      if (f - o * f0 > 20) probes.push(peakAt(frame.mag, f - o * f0, df));
+    for (const d of offs) {
+      probes.push(peakAt(frame.mag, f + d, df));
+      if (f - d > 20) probes.push(peakAt(frame.mag, f - d, df));
     }
     // Median, not minimum. The minimum of sixteen peak-picks is biased low
     // exactly as a single peak-pick is biased high, and either bias alone is
@@ -838,7 +858,7 @@ export function analyse(samples, sr, opts) {
   const shifts = findShifts(track, dt);
   track = classify(track, dt, shifts);
   const good = confident(track);
-  for (const p of good) p.harm = harmonicsOf(p.frame, p.f0s, df, maxHz, 40);
+  for (const p of good) p.harm = harmonicsOf(p.frame, p.f0s, df, maxHz, 40, opts.order);
 
   const rpms = good.map((p) => p.rpm).sort((a, b) => a - b);
   const pct = (q) => rpms[Math.min(rpms.length - 1, Math.floor(rpms.length * q))] || 0;
