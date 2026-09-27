@@ -7,3 +7,13 @@ desktop.ini
 
 # Node, if tooling ever grows
 node_modules/
+
+# Reference recordings you supply to tools/analyse-sample.mjs, and any audio
+# under sounds/. Loops cut from someone else's recording are derived from
+# their work: measure it and fit the generator to it, but do not commit it.
+# Your own recordings are yours - `git add -f sounds/...` if you want them in.
+_ref/
+sounds/**/*.wav
+sounds/**/*.flac
+sounds/**/*.ogg
+sounds/**/*.mp3

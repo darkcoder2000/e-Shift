@@ -236,6 +236,77 @@ into ten, and the mixer picks it up. Two things to keep right if you do:
 You can also load a config file from disk with **Load config…** (handy on
 `file://`), and **Download config** writes the current one back out.
 
+### Fitting a profile to a real recording
+
+The three shipped profiles were *invented*: every generator parameter is a
+guess at what an I4 / V8 / synthetic e-sound ought to look like spectrally.
+That is the main reason they can still sound synthetic. `tools/analyse-sample.mjs`
+measures a real engine instead.
+
+```
+node tools/analyse-sample.mjs onboard.m4a --from 1:20 --to 3:05 --fit --profile my-car
+node tools/analyse-sample.mjs --selftest
+```
+
+You supply the file — any container ffmpeg can decode, and it must be one you
+have the right to use. The tool never downloads anything.
+
+**What it reports**
+
+| Measurement | Feeds |
+|---|---|
+| RPM track, peak rpm | `engine.redlineRpm`, `maxRpm` |
+| Ignition cuts: rpm at the cut, and the step across it | `engine.shiftUpRpm`, the spacing of `gearRatios` |
+| Harmonic structure per rev band | each layer's `generate` (`harmonics`, `tilt`, `half`, `oddBias`) |
+| Fixed resonances | profile `formants` |
+| Resonant bulge in the between-harmonic floor, and how it moves with rpm | `intake.freq.base` / `intake.freq.rpm`, `intake.gain` |
+| Strong partials at a non-integer engine order | `whine.order` (one per gear, on a straight-cut box) |
+
+**Two ideas do most of the work.** Everything is measured in *harmonic index*
+space rather than frequency, so frames at 3000 and 8000 rpm can be averaged
+together — no long steady-state section is needed, which matters because a
+lap of a circuit does not contain one. And the rev sweep *is* the
+deconvolution: a fixed cabin/airbox/exhaust resonance sits still while the
+harmonics sweep through it, so plotting measured-over-predicted harmonic
+amplitude against absolute frequency makes the resonances stand out by
+themselves. Those resonances are the part that identifies a specific car
+rather than a generic engine.
+
+**`--fit` closes the loop.** Measuring a recording gives numbers; turning
+those into *generator settings* is a separate problem, and inverting the
+synth's formulas by hand does not survive contact with the measurement. Every
+estimator carries bias, and for the quieter parameters that bias is larger
+than the parameter — a generated `noise` of 0.15 and of 0.45 both read back
+around 1.5–2.9, with the scale factor moving by 2× across rev bands. So
+`--fit` inverts nothing: it renders a candidate, measures it with the *same*
+instrument, and nudges the settings until the two readings agree. Whatever
+the instrument gets wrong it gets wrong identically on both sides, and it
+cancels. Without `--fit` you get measurements; with it you get settings.
+
+**Known limits**, all of them visible in `--selftest`:
+
+- Harmonics above 8 kHz are not analysed, so a high-revving engine's top
+  harmonics are simply not counted.
+- An engine with very strong crank-order content can be tracked an octave
+  low. The firing harmonics and the half-order ones really are comparable in
+  that case and nothing in the signal says which reading was meant. Fix it
+  with `--order` plus `--rpm-min` / `--rpm-max`.
+- `intake.freq.base` is an extrapolation down to zero rpm from a band the
+  recording never visits, so trust the per-band centres the tool prints over
+  the intercept.
+- The generator's `grit` waveshaper changes the spectral slope of its own
+  output, so a measured `tilt` fed straight back in will not reproduce
+  exactly. `--fit` accounts for this; hand-copying does not.
+
+**`--selftest` is the reason any of this can be trusted.** It renders the
+app's own layers, whose parameters are known exactly, and checks they are
+measured back; it hides a spec, fits it from a deliberately wrong start, and
+checks the settings are recovered; and `tools/selftest-onboard.mjs` builds a
+synthetic onboard lap with known shifts, resonances, induction band and gear
+whine and checks all of them come back out. An instrument that has not been
+checked against a known input is just a more confident guess — the first run
+of this one failed all five cases, on three separate bugs.
+
 ### Config reference
 
 Profile level: `engine` (any `js/engine.js` default can be overridden —
@@ -300,6 +371,12 @@ scripts over `soundconfig.json` plus `js/synth.js`):
 Or just drive it and watch the `×` column in the *Layer mix* panel, and the
 `OVERRUN` lamp, which should light while coasting in gear and stay dark in
 neutral.
+
+After changing the analyser or `js/synth.js`, re-run its own checks:
+
+```
+node tools/analyse-sample.mjs --selftest
+```
 
 ## Status
 

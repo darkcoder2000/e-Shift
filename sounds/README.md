@@ -51,3 +51,26 @@ sounds/
 
 Then point `soundconfig.json` at the files and reload. See the config reference
 in the top-level `README.md`.
+
+## Cutting loops out of a recording you have
+
+`tools/analyse-sample.mjs --emit-wav sounds/<car>` will cut loops for you at
+the rev bands it measured, on a whole number of firing cycles so the seam
+lands where it should. Two warnings, and they are the reason this is the
+fallback rather than the recommended path:
+
+- **An onboard recording is not an engine recording.** It is engine plus
+  wind, road, tyre and transmission noise, and all of that comes along in the
+  loop. Worse, the mixer transposes a layer with `playbackRate`, so the wind
+  in it rises in pitch with the revs — which is exactly the giveaway the
+  band-splitting above exists to avoid.
+- **Keep the output local.** Loops cut from someone else's recording are
+  derived from their work: do not commit them and do not redistribute them.
+  Audio files under `sounds/` are gitignored for that reason. Recordings you
+  made yourself are yours - `git add -f sounds/i4/top.wav` if you want them
+  tracked.
+
+Fitting the *generator* to the recording instead — `--fit`, see the top-level
+`README.md` — has neither problem: the synth rebuilds the sound from numbers,
+and numbers describing an engine are not the recording. It also gets you a
+clean engine voice out of a noisy source, which cutting loops cannot.
