@@ -553,42 +553,75 @@ function classify(track, dt, shifts) {
 // trusted to CARRY A LEVEL at ~10 dB. The gap matters: counting harmonics
 // wants the looser bar, fitting a slope through them wants the tighter one.
 const SNR_PRESENT = 2;
+/** Finest sub-comb the analyser will look for, as a divisor of f0. */
+const SUB_MAX = 8;
 const SNR_FIT = 3;
+
+/** Where are this recording's gaps?
+ *
+ *  Candidate offsets from the harmonic, in engine orders, ranked by how
+ *  quiet they are across a sample of frames and the first several harmonics.
+ *  Keep the quietest ones. The alternative is to assume a grid, and every
+ *  assumption has broken on the next engine: a four-cylinder puts content on
+ *  the halves, a flatplane V8 on every whole order, a crossplane V8 on the
+ *  halves again but four times as densely. The recording knows, so ask it.
+ *
+ *  Selecting on the same statistic that is later measured does bias the
+ *  floor down a little. It is bounded: each candidate's median is taken over
+ *  hundreds of readings, and only offsets within 2 dB of the quietest are
+ *  kept, so the choice is between offsets that agree rather than between
+ *  noise. */
+function pickFloorOffsets(points, order, df) {
+  const cand = [];
+  for (let n = 0.125; n <= 2.001; n += 0.125) cand.push(r3(n));
+  const seen = cand.map(() => []);
+  const stride = Math.max(1, Math.floor(points.length / 150));
+  for (let i = 0; i < points.length; i += stride) {
+    const p = points[i], fr = p.f0s / order;
+    if (!(fr > 0)) continue;
+    for (const h of [1, 2, 3, 4, 6, 8]) {
+      const f = h * p.f0s;
+      const a = peakAt(p.frame.mag, f, df);
+      if (!(a > 0)) continue;
+      for (let c = 0; c < cand.length; c++) {
+        const d = cand[c] * fr;
+        if (d < 2.5 * df) continue;
+        seen[c].push(peakAt(p.frame.mag, f + d, df) / a);
+        if (f - d > 20) seen[c].push(peakAt(p.frame.mag, f - d, df) / a);
+      }
+    }
+  }
+  const scored = [];
+  for (let c = 0; c < cand.length; c++) {
+    if (seen[c].length >= 40) scored.push({ n: cand[c], level: median(seen[c]) });
+  }
+  if (scored.length < 3) return [0.5, 1.5, 2.5];          // nothing to go on
+  scored.sort((a, b) => a.level - b.level);
+  const quietest = scored[0].level;
+  const keep = scored.filter((x) => x.level <= quietest * Math.pow(10, 2 / 20));
+  return (keep.length >= 3 ? keep : scored.slice(0, 3)).map((x) => x.n).sort((a, b) => a - b);
+}
 
 /** Per frame: harmonic amplitudes, half-order amplitudes and the floor
  *  between harmonics, all relative to that frame's own f0. */
-function harmonicsOf(frame, f0, df, maxHz, maxH, order) {
+function harmonicsOf(frame, f0, df, maxHz, maxH, order, eoOffsets) {
   // The floor beside a harmonic: the typical level across the gap up to the
   // next one, sampled rather than assumed.
   //
   // Both halves of this comparison have to come through peakAt, or the
   // max-of-five-samples bias makes noise look like signal. Where to sample
-  // is the harder half. Probing at fixed fractions of f0 assumes where the
-  // gaps are, and that assumption is order-dependent: a V8 fires four times
-  // per revolution, so an engine order sits at every quarter of f0, and a
-  // probe at 0.2 or 0.3 f0 lands in the skirt of a real partial. That
-  // collapsed every SNR in a V8 clip - all six rev bands fell back to the
-  // default tilt because fewer than three harmonics cleared their own floor.
-  //
-  // So keep sweeping the gap and taking the median, but sweep only the parts
-  // of it that ARE gaps: a dense set of offsets with a guard band removed
-  // around every whole ENGINE order, which is where an engine puts its
-  // content whatever its cylinder count. Measured on a known layer, the
-  // offsets left over read 10-20 dB below the whole orders either side.
-  //
-  // Two bounds matter. Offsets closer than 2.5 bins are dropped, because the
-  // window cannot separate those from the harmonic itself. And the span
-  // stays near one f0 either side: a floor sampled three harmonics away is
-  // not a local floor, and on a resonance it reads the slope instead of the
-  // gap.
-  const fr = f0 / order;                               // crank rotation, Hz
+  // is the harder half, and every fixed answer to it has been wrong on the
+  // next recording. Fractions of f0 assumed a four-cylinder and landed on
+  // real partials on a V8, where an engine order sits at every quarter of
+  // f0. Guarding the whole engine orders then failed on a crossplane V8,
+  // which is as loud at order 0.5 as it is at its firing order. So the
+  // offsets come from pickFloorOffsets(), which measures where this
+  // recording's gaps actually are. They arrive in engine orders; the crank
+  // rate turns them into Hz for this frame.
+  const fr = f0 / order;
   const offs = [];
-  for (let n = 0.125; n * fr <= 1.1 * f0 + 1e-9; n += 0.125) {
-    if (Math.abs(n - Math.round(n)) < 0.2) continue;   // a whole engine order lives here
-    if (n * fr < 2.5 * df) continue;                   // unresolvable at this f0
-    offs.push(n * fr);
-  }
-  if (!offs.length) offs.push(Math.max(2.5 * df, 0.5 * fr));   // low f0: best we can do
+  for (const n of eoOffsets) if (n * fr >= 2.5 * df) offs.push(n * fr);
+  if (!offs.length) offs.push(Math.max(2.5 * df, 0.5 * fr));
   // Reused across calls to keep one array instead of one per harmonic.
   const probes = [];
   const localFloor = (f) => {
@@ -617,14 +650,23 @@ function harmonicsOf(frame, f0, df, maxHz, maxH, order) {
     A.push({ h, f, a: clean(raw, fl), snr: raw / Math.max(fl, 1e-12) });
     if (f + f0 * 0.5 < maxHz) floors.push({ h, f: f + f0 * 0.5, a: fl });
   }
-  for (let h = 1; h <= maxH; h++) {
-    const x = h - 0.5;                                       // 0.5, 1.5, 2.5 ... crank order
+  // The sub-comb below the firing harmonics, measured at the finest spacing
+  // this frame can resolve. The generator lays it down at f0/sub; sub=2 is
+  // the crank order and was the only option until a crossplane V8 turned up
+  // with content every 0.5 ENGINE order - f0/8 at firing order 4, and as
+  // loud at order 0.5 as at the firing order itself. fitSpec picks which
+  // divisor the recording actually supports; this just measures them all.
+  let sub = SUB_MAX;
+  while (sub > 2 && f0 / sub < 3 * df) sub /= 2;             // must be resolvable
+  for (let j = 1; j <= maxH * sub; j++) {
+    if (j % sub === 0) continue;                             // a firing harmonic
+    const x = j / sub;
     const f = x * f0;
     if (f > maxHz) break;
     const fl = localFloor(f), raw = peakAt(frame.mag, f, df);
     halfA.push({ x, f, a: clean(raw, fl), snr: raw / Math.max(fl, 1e-12) });
   }
-  return { A, halfA, floors };
+  return { A, halfA, floors, sub };
 }
 
 /** Pool frames (already filtered to one state / rev band) into the numbers
@@ -663,44 +705,97 @@ function fitSpec(points, sr) {
   // count came back as seven.
   const rawSnr = hs.map((h) => median(snrH.get(h) || [0]));
   const snrSm = rawSnr.map((_, i) => median(rawSnr.slice(Math.max(0, i - 1), i + 2)));
+
+  // Two ways to count as present, because the local floor probe stops being
+  // trustworthy exactly where it is needed most. On a V8 the spectrum above
+  // a few times the firing frequency is a continuum - half-orders and whole
+  // orders at the same level - so the gap reads as loud as the partial and
+  // every harmonic past the fourth "failed", while the comb visibly carried
+  // on to the eightieth engine order. So a harmonic also counts if it stands
+  // 6 dB over the BAND's median floor, which averages over the whole
+  // recording instead of one contaminated neighbourhood. Content that is not
+  // there fails both tests, so a clean recording counts the same as before.
+  const bandFloor = median(floorA.length ? floorA : [1e-9]);
+  const relSm = relH.map((_, i) => median(relH.slice(Math.max(0, i - 1), i + 2)));
+  const present = (i) => snrSm[i] >= SNR_PRESENT || relSm[i] >= bandFloor * 2;
   let harmonics = 1, misses = 0;
   for (let i = 0; i < hs.length; i++) {
-    if (snrSm[i] >= SNR_PRESENT) { harmonics = hs[i]; misses = 0; }
+    if (present(i)) { harmonics = hs[i]; misses = 0; }
     else if (++misses >= 3) break;
   }
   const snrOf = (h) => snrSm[hs.indexOf(h)] ?? 0;
+  const relOf = (h) => relSm[hs.indexOf(h)] ?? 0;
 
   // Fit only where there is signal to fit. Once the floor has been subtracted,
   // a harmonic that was never there sits near zero, and log10 of near-zero
   // dominates a least-squares fit completely - a generated tilt of -0.9 came
   // back as -1.50 before this gate.
   const keep = hs.map((_, i) => i)
-    .filter((i) => hs[i] <= harmonics && relH[i] > 0 && snrOf(hs[i]) >= SNR_FIT);
+    .filter((i) => hs[i] <= harmonics && relH[i] > 0
+      && (snrOf(hs[i]) >= SNR_FIT || relOf(hs[i]) >= bandFloor * 3));
 
   // tilt: amp ~ h^tilt, so dB is linear in log10(h) with slope 20*tilt.
   const fitH = keep.map((i) => Math.log10(hs[i]));
   const fitY = keep.map((i) => 20 * Math.log10(relH[i]));
+
+  // If the firing harmonics alone cannot carry a slope, fit the whole comb
+  // above the firing frequency instead. A V8's energy is spread across every
+  // engine order rather than concentrated on multiples of f0, so only two of
+  // its firing harmonics clear the gate and the tilt fell back to a default
+  // - a made-up number sitting in the middle of six measured rev bands. The
+  // partials in between are on the same envelope, so they can carry it.
+  // Only above x = 1: below the firing frequency the generator's envelope
+  // goes flat, so those partials are not on this curve.
+  if (fitH.length < 3) {
+    for (const [x, arr] of byX) {
+      if (x < 1 || x > harmonics) continue;
+      const rel = median(arr);
+      if (!(rel > 0) || median(snrX.get(x) || [0]) < SNR_FIT) continue;
+      fitH.push(Math.log10(x)); fitY.push(20 * Math.log10(rel));
+    }
+  }
   const tilt = fitH.length >= 3 ? regress(fitH, fitY).slope / 20 : -1.2;
   const predicted = (h) => Math.pow(h, tilt);
 
-  // half: crank-order content against what the tilt predicts at that index.
+  // How fine is the sub-comb? Take the finest divisor whose OWN partials -
+  // the ones a coarser divisor does not already cover - are really there.
+  // Going finer than the recording supports fills the gaps with noise and
+  // reads it back as signal; going coarser leaves out the loudest thing in
+  // a V8's spectrum.
+  // Judged below x = 2 only, which is where a sub-comb is audible and where
+  // it is resolvable. Above a few times the firing frequency this V8's
+  // spectrum is a continuum - its half-orders and whole orders sit at the
+  // same level - and averaging that in buries the answer.
+  const subSeen = Math.min(...usable.map((p) => p.harm.sub));
+  let sub = 2;
+  for (let cand = subSeen; cand > 2; cand /= 2) {
+    const own = [...byX.keys()].filter((x) => x <= 2 && (x * cand) % 2 === 1);
+    if (own.length < 3) continue;
+    if (median(own.map((x) => median(snrX.get(x) || [0]))) >= SNR_PRESENT) { sub = cand; break; }
+  }
+
+  // The sub-comb's level against what the tilt predicts at that index.
   //
-  // Summed, not a median of per-order ratios. The half-orders fade into the
+  // Summed, not a median of per-order ratios. The sub-orders fade into the
   // floor long before the firing harmonics do, so most of the orders in
   // range read zero and a median over them returns zero however loud the
   // first few are - a generated 0.5 measured back as 0. Summing lets the low
   // orders, which are the ones you actually hear, carry the answer.
+  //
+  // max(0.5, x) mirrors the generator exactly: below half the firing
+  // frequency its envelope goes flat rather than carrying on up. At sub=2
+  // nothing is below 0.5 so this is the old formula unchanged.
   let halfGot = 0, halfPred = 0;
   for (const [x, arr] of byX) {
-    if (x > harmonics) continue;
-    const pred = Math.pow(x, tilt - 0.15);
+    if (x > harmonics || (x * sub) % 1 !== 0) continue;
+    const pred = Math.pow(Math.max(0.5, x), tilt - 0.15);
     if (!(pred > 0)) continue;
     halfPred += pred;
     if (median(snrX.get(x) || [0]) >= SNR_PRESENT) halfGot += median(arr);
   }
-  // Bounded. Above about 1.4 the crank orders would be louder than the
-  // firing harmonics, which does not happen; a number above that means the
-  // fit broke down, usually on a band with too few frames to average.
+  // Bounded. Above about 1.4 the sub-orders would be louder than the firing
+  // harmonics, which does not happen; a number above that means the fit
+  // broke down, usually on a band with too few frames to average.
   const halfAmt = Math.min(1.4, halfPred > 0 ? halfGot / halfPred : 0);
 
   // oddBias multiplies the EVEN harmonics in the generator (js/synth.js).
@@ -740,6 +835,7 @@ function fitSpec(points, sr) {
   return {
     tilt: r3(tilt),
     harmonics,
+    sub,
     half: r3(Math.max(0, halfAmt)),
     oddBias: r3(oddBias),
     noiseTilt: r3(nFit.slope),
@@ -947,7 +1043,11 @@ export function analyse(samples, sr, opts) {
   const shifts = findShifts(track, dt);
   track = classify(track, dt, shifts);
   const good = confident(track);
-  for (const p of good) p.harm = harmonicsOf(p.frame, p.f0s, df, maxHz, 40, opts.order);
+  const eoOffsets = pickFloorOffsets(good, opts.order, df);
+  if (process.env.DBG) console.error('floor probe offsets (engine orders):', eoOffsets.join(' '));
+  for (const p of good) {
+    p.harm = harmonicsOf(p.frame, p.f0s, df, maxHz, 40, opts.order, eoOffsets);
+  }
 
   const rpms = good.map((p) => p.rpm).sort((a, b) => a - b);
   const pct = (q) => rpms[Math.min(rpms.length - 1, Math.floor(rpms.length * q))] || 0;
@@ -1018,7 +1118,7 @@ export function analyse(samples, sr, opts) {
 function suggestProfile(rep, key) {
   const g = (fit, extra) => fit && Object.assign({
     type: 'engine', order: rep.input.order,
-    harmonics: fit.harmonics, tilt: fit.tilt, half: fit.half,
+    harmonics: fit.harmonics, tilt: fit.tilt, half: fit.half, sub: fit.sub,
     oddBias: fit.oddBias, noiseTilt: fit.noiseTilt
   }, extra);
   const redline = Math.round(rep.rpm.limiterHint / 50) * 50;
@@ -1311,7 +1411,8 @@ function summary(rep) {
     L.push(`\n${name}  (${f.frames} frames)`);
     row('harmonics', f.harmonics);
     row('tilt', f.tilt);
-    row('half (crank order)', f.half);
+    row('sub-comb', `f0/${f.sub}  (every ${r3(rep.input.order / f.sub)} engine orders)`);
+    row('half (sub-comb level)', f.half);
     row('oddBias', f.oddBias);
     row('floor between harm.', f.floorDb + ' dB below h1');
     row('floor tilt', f.noiseTilt);
@@ -1394,7 +1495,7 @@ function main() {
       const base = {
         type: 'engine', order: rep.input.order, baseRpm,
         duration: r2(0.7 + 0.7 * Math.min(1, baseRpm / 6000)),
-        harmonics: fit.harmonics, tilt: fit.tilt, half: fit.half,
+        harmonics: fit.harmonics, tilt: fit.tilt, half: fit.half, sub: fit.sub,
         noise: 0.3, noiseTilt: fit.noiseTilt, shimmer: 0.22, grit: 0.25,
         seed: 200 + Math.round(baseRpm / 100)
       };

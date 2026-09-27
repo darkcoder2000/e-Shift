@@ -92,11 +92,21 @@
     var n = 1 << Math.max(12, Math.ceil(Math.log2((spec.duration || 0.6) * sr)));
     var f0 = sr / n;
 
-    // Snap the firing frequency onto the bin grid. An even bin index keeps the
-    // half-order (crank rotation) partials on the grid as well.
-    var kFire = Math.max(2, Math.round(wantFire / f0));
-    if (kFire % 2) kFire++;
-    var kHalf = kFire / 2;
+    // How finely the sub-comb below the firing harmonics is filled in, as a
+    // divisor of the firing frequency. 2 is the crank order and was the only
+    // option; a V8 needs more. Measured on a Bentley GT3, that engine has
+    // content at every HALF engine order, which at firing order 4 is f0/8,
+    // and the orders in between are within a few dB of the firing harmonics
+    // themselves - so a comb at f0/2 leaves out three quarters of what makes
+    // a V8 sound like one.
+    var sub = Math.max(2, Math.round(spec.sub || 2));
+
+    // Snap the firing frequency onto the bin grid. A bin index that is a
+    // multiple of `sub` keeps the sub-comb on the grid as well, which is what
+    // keeps the loop seamless.
+    var kFire = Math.max(sub, Math.round(wantFire / f0));
+    if (kFire % sub) kFire += sub - (kFire % sub);
+    var kHalf = kFire / sub;
     var actualRpm = (kFire * f0 * 60) / order;
 
     var half = n / 2;
@@ -125,13 +135,18 @@
       partials.push(k, a, h);
     }
     if (halfAmt > 0) {
-      for (h = 1; h <= nHarm * 2; h++) {
+      for (h = 1; h <= nHarm * sub; h++) {
         k = h * kHalf;
         if (k > maxK) break;
         if (k % kFire === 0) continue; // already covered by the firing harmonics
-        a = halfAmt * Math.pow(h / 2, tilt - 0.15);
+        // max(0.5, ...) stops the envelope climbing below half the firing
+        // frequency. Extrapolating h^tilt that far down predicts a partial at
+        // an eighth of f0 some 20 dB louder than the recording has it. At
+        // sub=2 nothing sits below 0.5, so this is a no-op and the three
+        // profiles that shipped before it are bit-identical.
+        a = halfAmt * Math.pow(Math.max(0.5, h / sub), tilt - 0.15);
         mag[k] += a;
-        partials.push(k, a, h / 2);
+        partials.push(k, a, h / sub);
       }
     }
 
