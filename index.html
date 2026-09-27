@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>e-Shift &mdash; Virtual Engine Sound</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<div id="start" class="start-overlay">
+  <div class="start-card">
+    <h1>e&#8209;Shift</h1>
+    <p class="sub">Virtual engine sound &amp; gearbox simulation</p>
+    <button id="start-btn" type="button">Start engine</button>
+    <p class="hint">Audio can only start after a click &mdash; browser autoplay policy.</p>
+  </div>
+</div>
+
+<main class="app" aria-hidden="true">
+
+  <header class="topbar">
+    <div class="brand"><span class="mark">N</span> e&#8209;Shift Simulator</div>
+    <div class="topbar-right">
+      <label class="field">
+        <span>Profile</span>
+        <select id="profile"></select>
+      </label>
+      <label class="field">
+        <span>Volume</span>
+        <input id="volume" type="range" min="0" max="100" value="70">
+      </label>
+    </div>
+  </header>
+
+  <section class="stage">
+
+    <div class="cluster">
+      <canvas id="tach" width="440" height="440" aria-label="Rev counter"></canvas>
+    </div>
+
+    <div class="readouts">
+      <div class="gear-box">
+        <div class="label">Gear</div>
+        <div class="gear" id="gear">1</div>
+        <div class="mode" id="mode">AUTO</div>
+      </div>
+
+      <div class="speed-box">
+        <div class="label">Speed</div>
+        <div class="speed"><span id="speed">0</span><em>km/h</em></div>
+        <div class="odo"><span id="odo">0.00</span> km</div>
+      </div>
+
+      <div class="pedals">
+        <div class="pedal">
+          <div class="label">Throttle</div>
+          <div class="bar"><i id="bar-throttle"></i></div>
+        </div>
+        <div class="pedal">
+          <div class="label">Brake</div>
+          <div class="bar brake"><i id="bar-brake"></i></div>
+        </div>
+      </div>
+
+      <div class="flags">
+        <span class="flag" id="flag-shift">SHIFT</span>
+        <span class="flag" id="flag-limiter">LIMITER</span>
+        <span class="flag" id="flag-clutch">CLUTCH</span>
+      </div>
+    </div>
+
+  </section>
+
+  <section class="panels">
+
+    <div class="panel">
+      <h2>Controls</h2>
+      <ul class="keys">
+        <li><kbd>W</kbd> / <kbd>&uarr;</kbd><span>Throttle</span></li>
+        <li><kbd>S</kbd> / <kbd>&darr;</kbd><span>Brake</span></li>
+        <li><kbd>E</kbd> / <kbd>&rarr;</kbd><span>Shift up</span></li>
+        <li><kbd>Q</kbd> / <kbd>&larr;</kbd><span>Shift down</span></li>
+        <li><kbd>N</kbd><span>Neutral</span></li>
+        <li><kbd>M</kbd><span>Auto / manual</span></li>
+        <li><kbd>R</kbd><span>Reset</span></li>
+      </ul>
+      <label class="checkline">
+        <input type="checkbox" id="auto" checked>
+        <span>Automatic gearbox</span>
+      </label>
+    </div>
+
+    <div class="panel">
+      <h2>Layer mix</h2>
+      <div id="mix" class="mix"></div>
+      <p class="muted" id="mix-note"></p>
+    </div>
+
+    <div class="panel">
+      <h2>Sound profile</h2>
+      <p class="muted" id="profile-desc"></p>
+      <div class="row">
+        <label class="btn">
+          <input type="file" id="cfg-file" accept=".json,application/json" hidden>
+          Load config&hellip;
+        </label>
+        <button class="btn" type="button" id="cfg-save">Download config</button>
+      </div>
+      <p class="muted small">
+        Drop your own WAV loops into <code>sounds/</code> and point
+        <code>soundconfig.json</code> at them &mdash; no code changes needed.
+      </p>
+      <ul class="notes" id="notes"></ul>
+    </div>
+
+  </section>
+</main>
+
+<script src="js/synth.js"></script>
+<script src="js/engine.js"></script>
+<script src="js/audio.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/fallback-config.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>
