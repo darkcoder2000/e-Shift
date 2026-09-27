@@ -324,6 +324,62 @@ function fixOctaves(raw, fMin, fMax) {
   return out;
 }
 
+/** How many coarse peaks per frame the path search may choose between. */
+const CAND = 6;
+/** Cost, in score-decibels, of moving the engine one octave in one hop. */
+const MOVE = 55;
+/** Speed changes this far per second are free - a hard pull is ~5%/hop. */
+const FREE_RATE = 1.2;
+
+/** Cheapest path through per-frame candidate lists.
+ *
+ *  Emission: how far this candidate scored below the best in its own frame,
+ *  so a frame with one clear winner is expensive to leave and a frame with
+ *  six near-ties is nearly free to route through. Transition: octaves moved
+ *  per second, beyond what an engine can really do.
+ *
+ *  Frames with no candidate at all are skipped rather than routed through.
+ *  --from/--to joins its sections with a silent gap, and silence scores
+ *  nothing; chaining through it once left the whole track null. The engine
+ *  is also allowed to have moved further across a long gap than across one
+ *  hop, which is what `times` is for. */
+function cheapestPath(cands, times) {
+  const out = new Array(cands.length).fill(null);
+  const idx = [];
+  for (let i = 0; i < cands.length; i++) if (cands[i].length) idx.push(i);
+  if (!idx.length) return out;
+
+  const cost = [], back = [];
+  for (let k = 0; k < idx.length; k++) {
+    const here = cands[idx[k]];
+    const top = Math.max(...here.map((c) => c.score));
+    const emit = here.map((c) => top - c.score);
+    if (k === 0) { cost.push(emit.slice()); back.push(here.map(() => 0)); continue; }
+    const prev = cands[idx[k - 1]], pc = cost[k - 1];
+    const free = Math.log2(1 + FREE_RATE * Math.max(1e-3, times[idx[k]] - times[idx[k - 1]]));
+    const row = [], bk = [];
+    for (let a = 0; a < here.length; a++) {
+      let bestC = Infinity, bestJ = 0;
+      for (let b = 0; b < prev.length; b++) {
+        const d = Math.abs(Math.log2(here[a].f / prev[b].f));
+        const c = pc[b] + MOVE * Math.max(0, d - free);
+        if (c < bestC) { bestC = c; bestJ = b; }
+      }
+      row.push(bestC + emit[a]); bk.push(bestJ);
+    }
+    cost.push(row); back.push(bk);
+  }
+
+  let j = 0;
+  const last = cost[cost.length - 1];
+  for (let k = 1; k < last.length; k++) if (last[k] < last[j]) j = k;
+  for (let k = idx.length - 1; k >= 0; k--) {
+    out[idx[k]] = cands[idx[k]][j];
+    j = back[k][j];
+  }
+  return out;
+}
+
 function trackF0(frames, df, sr, opts) {
   const maxHz = Math.min(8000, sr * 0.45);
   const fMin = (opts.rpmMin / 60) * opts.order;
@@ -331,17 +387,50 @@ function trackF0(frames, df, sr, opts) {
   const maxH = 24;
   const track = [];
 
+  // Per frame, keep the whole coarse score curve's best few peaks rather than
+  // just its winner, and let a path through time pick between them.
+  //
+  // The winner alone is enough on a clean recording and hopeless on a noisy
+  // one. On a V8 onboard with the harmonics only ~20 dB clear of the floor,
+  // the top few peaks scored within a decibel of each other and the argmax
+  // hopped between them frame by frame - 5985, 6956, 5019, 7010, 5080 rpm
+  // inside two seconds. None of that is an octave, so fixOctaves could not
+  // touch it, and findShifts read the hopping as 57 upshifts in 28 seconds.
+  // The engine's speed is continuous, so the cheapest path wins instead:
+  // each frame pays for how far its candidate is off that frame's best, and
+  // each step pays for how far the speed moved.
+  const cands = [];
   for (const frame of frames) {
-    let best = 0, bestScore = 0;
+    const curve = [], fs = [];
     for (let f = fMin; f <= fMax; f += 1) {                  // coarse
-      const s = harmonicScore(frame, f, df, maxHz, maxH);
-      if (s > bestScore) { bestScore = s; best = f; }
+      fs.push(f); curve.push(harmonicScore(frame, f, df, maxHz, maxH));
     }
-    if (best) {
-      for (let f = best - 1; f <= best + 1; f += 0.05) {      // refine
-        const s = harmonicScore(frame, f, df, maxHz, maxH);
-        if (s > bestScore) { bestScore = s; best = f; }
+    const peaks = [];
+    for (let i = 0; i < curve.length; i++) {
+      if (curve[i] <= 0) continue;
+      if (i > 0 && curve[i] < curve[i - 1]) continue;
+      if (i < curve.length - 1 && curve[i] < curve[i + 1]) continue;
+      peaks.push(i);
+    }
+    peaks.sort((a, b) => curve[b] - curve[a]);
+    const here = [];
+    for (const i of peaks.slice(0, CAND)) {                  // refine each
+      let f = fs[i], sc = curve[i];
+      for (let g = fs[i] - 1; g <= fs[i] + 1; g += 0.05) {
+        const v = harmonicScore(frame, g, df, maxHz, maxH);
+        if (v > sc) { sc = v; f = g; }
       }
+      here.push({ f, score: sc });
+    }
+    cands.push(here);
+  }
+  const chosen = cheapestPath(cands, frames.map((f) => f.t));
+
+  for (let fi = 0; fi < frames.length; fi++) {
+    const frame = frames[fi];
+    let best = chosen[fi] ? chosen[fi].f : 0;
+    let bestScore = chosen[fi] ? chosen[fi].score : 0;
+    if (best) {
       // Octave resolution - see gapRatio(). Both directions are needed.
       // The coarse search is biased LOW all by itself: scoring the mean
       // excess over a fixed 8 kHz span means a subharmonic gets judged on
