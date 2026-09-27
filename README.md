@@ -174,23 +174,39 @@ frame loop.
 
 ## Sound profiles (Phase 2)
 
-`soundconfig.json` is the source of truth. Four profiles ship: a turbo I4, a
-cross-plane V8, a synthetic "e-Sound", and a Super Touring four fitted to a
-real recording. Switch them in the header; each one brings its own gearbox,
-rev range, torque curve and mix.
+`soundconfig.json` is the source of truth. Five profiles ship: a turbo I4, a
+cross-plane V8, a synthetic "e-Sound", and two fitted to real recordings.
+Switch them in the header; each one brings its own gearbox, rev range, torque
+curve and mix.
 
-**Super Touring (I4, 8500 rpm)** is the odd one out and the most interesting.
-The other three were invented - every generator parameter is a guess at what
-that kind of engine ought to look like spectrally. This one was *measured*,
-from an onboard recording of a 1996 Audi A4 (B5) quattro Super Tourer, using
-`tools/analyse-sample.mjs` (below). Its rev range, shift points, gear ratio
-spacing, per-band harmonic structure, resonances and gearbox whine order all
-came out of the file; the comments in the profile mark what was measured and
-what was chosen. Three things could not be measured and say so there: the car
-never idles on track, the recording never drops below about 3900 rpm, and its
-between-harmonic floor is the camera's wind and road noise rather than
-combustion - matching that floor would have needed a `noise` around 3, seven
-times any road car, and would have put the wind inside the engine voice.
+The first three were **invented** - every generator parameter is a guess at
+what that kind of engine ought to look like spectrally. The last two were
+**measured**, with `tools/analyse-sample.mjs` (below), and the comments in
+each profile mark what came out of the file and what had to be chosen.
+
+**Super Touring (I4, 8500 rpm)**, from an onboard of a 1996 Audi A4 (B5)
+quattro Super Tourer. Rev range, shift points, gear ratio spacing, per-band
+harmonic structure, three resonances and the gearbox whine order all came out
+of the recording. Three things could not: the car never idles on track, the
+clip never drops below about 3900 rpm, and its between-harmonic floor is the
+camera's wind and road noise rather than combustion - matching that floor
+would have needed a `noise` around 3, seven times any road car, and would
+have put the wind inside the engine voice.
+
+**GT3 Turbo V8 (7300 rpm)**, from an onboard of a Bentley Continental GT3.
+This one is where the *tool* had to change. Three of its assumptions were
+really assumptions about four-cylinders, and a V8 broke all three: where the
+gaps between harmonics are, how finely the sub-comb below the firing
+harmonics is filled in, and whether a harmonic that fails its local SNR test
+is absent or merely sitting in a continuum. The headline measurement is
+`sub: 8` - this engine has content at **every half engine order**, and those
+partials sit within a few dB of the firing harmonics themselves, so the old
+f0/2 comb was leaving out three quarters of its spectrum. Its tilt is also
+flat across the rev range where the Audi's brightens steadily, which is what
+a turbocharger and a long exhaust do. What could not be measured: idle again,
+the induction band (the estimator found nothing coherent, which is correct -
+the compressor sits between airbox and cylinders, so there is no
+throttle-body roar), and `noise` again, for the same wind-and-brakes reason.
 
 Each profile has eight layers: six pitched bands (`idle`, `low`, `low_mid`,
 `mid`, `high_mid`, `top`) plus `overrun_low` and `overrun_high` for the
@@ -252,10 +268,10 @@ You can also load a config file from disk with **Load config…** (handy on
 
 ### Fitting a profile to a real recording
 
-The three shipped profiles were *invented*: every generator parameter is a
-guess at what an I4 / V8 / synthetic e-sound ought to look like spectrally.
-That is the main reason they can still sound synthetic. `tools/analyse-sample.mjs`
-measures a real engine instead.
+The first three shipped profiles were *invented*: every generator parameter
+is a guess at what an I4 / V8 / synthetic e-sound ought to look like
+spectrally. That is the main reason they can still sound synthetic.
+`tools/analyse-sample.mjs` measures a real engine instead.
 
 ```
 node tools/analyse-sample.mjs onboard.m4a --from 1:20 --to 3:05 --fit --profile my-car
@@ -272,6 +288,7 @@ have the right to use. The tool never downloads anything.
 | RPM track, peak rpm | `engine.redlineRpm`, `maxRpm` |
 | Ignition cuts: rpm at the cut, and the step across it | `engine.shiftUpRpm`, the spacing of `gearRatios` |
 | Harmonic structure per rev band | each layer's `generate` (`harmonics`, `tilt`, `half`, `oddBias`) |
+| How finely the comb below the firing harmonics is filled in | each layer's `generate.sub` |
 | Fixed resonances | profile `formants` |
 | Resonant bulge in the between-harmonic floor, and how it moves with rpm | `intake.freq.base` / `intake.freq.rpm`, `intake.gain` |
 | Strong partials at a non-integer engine order | `whine.order` (one per gear, on a straight-cut box) |
@@ -305,6 +322,15 @@ cancels. Without `--fit` you get measurements; with it you get settings.
   low. The firing harmonics and the half-order ones really are comparable in
   that case and nothing in the signal says which reading was meant. Fix it
   with `--order` plus `--rpm-min` / `--rpm-max`.
+- The sub-comb divisor is resolution-limited, not just engine-dependent: the
+  same V8 reads f0/8 in its top rev bands and f0/2 in its lowest, where the
+  half-orders fall below 40 Hz into the wind noise. `--sub` forces it, which
+  also puts every band's `half` on one basis so the numbers are comparable.
+- A single `tilt` is one power law, and a real spectrum can be convex — this
+  V8's first five harmonics imply about -1.0 and its first ten about -1.5.
+  Fitting the slope alone reproduces the top of the comb 8-12 dB hot or
+  truncates it entirely; matching the whole profile is worth doing by hand
+  when the two disagree.
 - `intake.freq.base` is an extrapolation down to zero rpm from a band the
   recording never visits, so trust the per-band centres the tool prints over
   the intercept.
@@ -320,6 +346,14 @@ synthetic onboard lap with known shifts, resonances, induction band and gear
 whine and checks all of them come back out. An instrument that has not been
 checked against a known input is just a more confident guess — the first run
 of this one failed all five cases, on three separate bugs.
+
+Each real recording has since found more. The Audi clip forced Viterbi octave
+decoding, a swept-gap noise floor and the formant dB/linear unit fix; the
+Bentley forced an engine-order floor probe, a shortest-path rpm track, a
+configurable sub-comb and a harmonic count that does not give up inside a
+continuum. Both times the self-test stayed green while the tool was wrong, so
+it is a floor and not a ceiling: it proves the instrument still recovers what
+it used to, not that it is right about the next engine.
 
 ### Config reference
 

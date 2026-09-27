@@ -4,9 +4,9 @@
  *     node tools/analyse-sample.mjs onboard.m4a --from 1:20 --to 3:05
  *     node tools/analyse-sample.mjs --selftest
  *
- * The three shipped profiles were invented: every generator parameter was a
- * guess at what an engine "ought" to look like spectrally. This measures one
- * instead. Give it any file ffmpeg can decode and it reports the firing
+ * The first three shipped profiles were invented: every generator parameter
+ * was a guess at what an engine "ought" to look like spectrally. This
+ * measures one instead. Give it any file ffmpeg can decode and it reports the firing
  * frequency track, the harmonic structure per rev band, the fixed resonances,
  * the induction band, gearbox whine orders and the shift points.
  *
@@ -671,7 +671,7 @@ function harmonicsOf(frame, f0, df, maxHz, maxH, order, eoOffsets) {
 
 /** Pool frames (already filtered to one state / rev band) into the numbers
  *  js/synth.js makeEngineLoop actually reads. */
-function fitSpec(points, sr) {
+function fitSpec(points, sr, forceSub) {
   const byH = new Map(), byX = new Map();
   const snrH = new Map(), snrX = new Map();
   const floorF = [], floorA = [];
@@ -768,7 +768,8 @@ function fitSpec(points, sr) {
   // same level - and averaging that in buries the answer.
   const subSeen = Math.min(...usable.map((p) => p.harm.sub));
   let sub = 2;
-  for (let cand = subSeen; cand > 2; cand /= 2) {
+  for (let cand = forceSub || subSeen; cand > 2; cand /= 2) {
+    if (forceSub) { sub = Math.min(forceSub, subSeen); break; }
     const own = [...byX.keys()].filter((x) => x <= 2 && (x * cand) % 2 === 1);
     if (own.length < 3) continue;
     if (median(own.map((x) => median(snrX.get(x) || [0]))) >= SNR_PRESENT) { sub = cand; break; }
@@ -1044,7 +1045,6 @@ export function analyse(samples, sr, opts) {
   track = classify(track, dt, shifts);
   const good = confident(track);
   const eoOffsets = pickFloorOffsets(good, opts.order, df);
-  if (process.env.DBG) console.error('floor probe offsets (engine orders):', eoOffsets.join(' '));
   for (const p of good) {
     p.harm = harmonicsOf(p.frame, p.f0s, df, maxHz, 40, opts.order, eoOffsets);
   }
@@ -1060,13 +1060,13 @@ export function analyse(samples, sr, opts) {
   // Per-band fits over the on-throttle frames: the six pitched layers.
   const bandFits = bandsFor(Math.max(rpmLo, 500), Math.max(rpmHi, 1000), opts.bands).map((c) => {
     const pts = onThr.filter((p) => p.rpm >= c / 1.22 && p.rpm <= c * 1.22);
-    const fit = pts.length >= 4 ? fitSpec(pts, sr) : null;
+    const fit = pts.length >= 4 ? fitSpec(pts, sr, opts.sub) : null;
     if (fit) delete fit._res;
     return { baseRpm: c, covered: pts.length, fit };
   });
 
-  const thrFit = fitSpec(onThr, sr);
-  const ovrFit = overrun.length >= 6 ? fitSpec(overrun, sr) : null;
+  const thrFit = fitSpec(onThr, sr, opts.sub);
+  const ovrFit = overrun.length >= 6 ? fitSpec(overrun, sr, opts.sub) : null;
   const thrCurve = thrFit ? resonanceCurve(thrFit._res.f, thrFit._res.r, sr) : [];
   const ovrCurve = ovrFit ? resonanceCurve(ovrFit._res.f, ovrFit._res.r, sr) : [];
   const formants = pickFormants(thrCurve, 5);
@@ -1339,6 +1339,12 @@ function selftest() {
 
 const USAGE = `usage: node tools/analyse-sample.mjs <audio-or-video-file> [options]
 
+  --sub <n>             force the sub-comb divisor instead of detecting it.
+                        Detection is resolution-limited: the same engine
+                        reads f0/8 in its top rev bands and f0/2 in its
+                        lowest, where the half-orders fall below 40 Hz and
+                        into the wind noise. Forcing it puts every band on
+                        one basis, so their half values are comparable.
   --from <t> --to <t>   analyse only this section  (12.5 or 1:20 or 1:02:03).
                         Repeat the pair to join several sections - a lap
                         recording is mostly not the car you want.
@@ -1374,6 +1380,7 @@ function parseArgs(argv) {
     else if (a === '--rpm-min') o.rpmMin = Number(next());
     else if (a === '--rpm-max') o.rpmMax = Number(next());
     else if (a === '--bands') o.bands = Number(next());
+    else if (a === '--sub') o.sub = Number(next());
     else if (a === '--json') o.json = next();
     else if (a === '--emit-wav') o.emitWav = next();
     else if (a === '--profile') o.profile = next();
@@ -1423,7 +1430,8 @@ function summary(rep) {
   L.push('\nRev bands (on throttle)');
   for (const b of rep.bands) {
     L.push('  ' + String(b.baseRpm).padStart(5) + ' rpm  ' + String(b.covered).padStart(4) + ' frames  '
-      + (b.fit ? `harm ${String(b.fit.harmonics).padStart(2)}  tilt ${String(b.fit.tilt).padStart(6)}  half ${b.fit.half}`
+      + (b.fit ? `harm ${String(b.fit.harmonics).padStart(2)}  tilt ${String(b.fit.tilt).padStart(6)}`
+        + `  f0/${b.fit.sub}  half ${b.fit.half}`
         : '(too few)'));
   }
 
