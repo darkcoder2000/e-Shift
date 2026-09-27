@@ -18,6 +18,13 @@
  * exhaust or airbox resonance is fixed by geometry and stays put as the engine
  * revs. Keeping them in the graph is what makes high RPM sound like an engine
  * rather than a transposed loop.
+ *
+ * Two load signals drive the mix, not one. `loadCurve` keys on an *effective*
+ * throttle (the pedal, or the rev-match blip during a downshift), while the
+ * optional `overrunCurve` keys on `st.overrun` - non-zero only when the wheels
+ * are driving a closed-throttle engine. That separation is what lets coasting
+ * in gear sound different from free-revving down in neutral, which are the
+ * same pedal position.
  */
 (function (ES) {
   'use strict';
@@ -85,6 +92,9 @@
     this._shiftDip = 1;
     this._volume = 0.8;
     this._lastPop = 0;
+    this._lastT = null;
+    this._popAccum = 0;
+    this._popNext = 1;
   }
 
   EngineAudio.prototype.setVolume = function (v) {
@@ -318,6 +328,14 @@
     var rr = p.playbackRateRange || [0.5, 2.2];
     var maxCents = p.maxDetuneCents || 35;
     var weights = [], sumSq = 0;
+    var dt = clamp(now - (this._lastT == null ? now : this._lastT), 0, 0.1);
+    this._lastT = now;
+
+    // A rev-match happens with the driver's foot off, yet the engine is making
+    // noise as though it were on throttle. Everything timbral keys off this
+    // rather than the raw pedal - it is what makes a downshift audible as one.
+    var thr = Math.max(st.throttle, st.blip || 0);
+    var ovr = st.overrun || 0;
 
     for (i = 0; i < this.layers.length; i++) {
       l = this.layers[i];
@@ -336,7 +354,8 @@
       var fit = clamp(1 - cents / maxCents, 0, 1);
 
       var wBase = (l.cfg.gain == null ? 1 : l.cfg.gain)
-        * lerpCurve(l.cfg.loadCurve, st.throttle)
+        * lerpCurve(l.cfg.loadCurve, thr)
+        * (l.cfg.overrunCurve ? lerpCurve(l.cfg.overrunCurve, ovr) : 1)
         * lerpCurve(l.cfg.rpmCurve, st.rpm);
       var w = Math.max(0, wBase * fit);
       weights.push(w);
@@ -353,7 +372,8 @@
     }
 
     var norm = sumSq > 1e-9 ? 1 / Math.sqrt(sumSq) : 0;
-    var loud = lerpCurve(p.loudnessCurve, st.rpm) * lerpCurve(p.throttleLoudnessCurve, st.throttle);
+    var loud = lerpCurve(p.loudnessCurve, st.rpm) * lerpCurve(p.throttleLoudnessCurve, thr);
+    if (p.overrunLoudnessCurve) loud *= lerpCurve(p.overrunLoudnessCurve, ovr);
     var overall = loud * st.limiterGate;
 
     for (i = 0; i < this.layers.length; i++) {
@@ -363,9 +383,13 @@
       l.gain.gain.setTargetAtTime(g, now, 0.02);
     }
 
-    // airbox / muffler: opens up with load and revs
+    // Airbox / muffler: opens up with load and revs. The `overrun` term keeps
+    // it open off throttle too - a closed throttle at 5000 rpm in gear is hard
+    // and hollow, not muffled, and without this the whole graph collapses to
+    // its floors the instant you lift.
     var toneCfg = p.tone || {};
-    var fc = clamp((toneCfg.base || 700) + st.throttle * (toneCfg.throttle || 6500) + st.rpm * (toneCfg.rpm || 0.45),
+    var fc = clamp((toneCfg.base || 700) + thr * (toneCfg.throttle || 6500)
+      + ovr * (toneCfg.overrun || 0) + st.rpm * (toneCfg.rpm || 0.45),
       300, ctx.sampleRate * 0.45);
     this.tone.frequency.setTargetAtTime(fc, now, 0.05);
 
@@ -373,7 +397,8 @@
     // pushes harder into the soft clipper and the engine gains rasp.
     if (this.drive) {
       var dc = this.drive.cfg;
-      var dAmt = dc.amount * lerpCurve(dc.rpmCurve, st.rpm) * lerpCurve(dc.loadCurve, st.throttle);
+      var dAmt = dc.amount * lerpCurve(dc.rpmCurve, st.rpm) * lerpCurve(dc.loadCurve, thr);
+      if (dc.overrunCurve) dAmt *= lerpCurve(dc.overrunCurve, ovr);
       var pre = 1 + clamp(dAmt, 0, 1) * 5;
       this.drive.pre.gain.setTargetAtTime(pre, now, 0.05);
       this.drive.post.gain.setTargetAtTime(1 / (SHAPER_SLOPE * pre), now, 0.05);
@@ -381,7 +406,8 @@
 
     if (this.rasp) {
       var rc = this.rasp.cfg;
-      var rg = rc.maxGain * lerpCurve(rc.rpmCurve, st.rpm) * lerpCurve(rc.loadCurve, st.throttle);
+      var rg = rc.maxGain * lerpCurve(rc.rpmCurve, st.rpm) * lerpCurve(rc.loadCurve, thr);
+      if (rc.overrunCurve) rg *= lerpCurve(rc.overrunCurve, ovr);
       this.rasp.node.gain.setTargetAtTime(clamp(rg, -24, 24), now, 0.05);
     }
 
@@ -390,7 +416,9 @@
       var icf = ic.freq || {};
       var nf = clamp((icf.base || 400) + st.rpm * (icf.rpm || 0.3), 80, ctx.sampleRate * 0.45);
       this.intake.filter.frequency.setTargetAtTime(nf, now, 0.05);
-      var ig = ic.gain * lerpCurve(ic.rpmCurve, st.rpm) * lerpCurve(ic.loadCurve, st.throttle) * overall;
+      var ig = ic.gain * lerpCurve(ic.rpmCurve, st.rpm) * lerpCurve(ic.loadCurve, thr);
+      if (ic.overrunCurve) ig *= lerpCurve(ic.overrunCurve, ovr);
+      ig *= overall;
       this.intake.gain.gain.setTargetAtTime(ig, now, 0.04);
       this.intake.level = ig;
     }
@@ -400,8 +428,26 @@
       var f = clamp((st.rpm / 60) * (w2.order || 12), 20, ctx.sampleRate * 0.45);
       this.whine.osc.frequency.setTargetAtTime(f, now, 0.02);
       this.whine.filter.frequency.setTargetAtTime(clamp(f * 3.5, 200, 16000), now, 0.05);
-      var wg = w2.gain * lerpCurve(w2.loadCurve, st.throttle) * lerpCurve(w2.rpmCurve, st.rpm) * overall;
-      this.whine.gain.gain.setTargetAtTime(wg, now, 0.03);
+      var wg = w2.gain * lerpCurve(w2.loadCurve, thr) * lerpCurve(w2.rpmCurve, st.rpm);
+      if (w2.overrunCurve) wg *= lerpCurve(w2.overrunCurve, ovr);
+      this.whine.gain.gain.setTargetAtTime(wg * overall, now, 0.03);
+    }
+
+    // Continuous overrun crackle. A decelerating engine cracks and pops the
+    // whole way down, not once at the lift - the old code fired a single burst
+    // per lift and then went silent for the rest of the stop.
+    var pc = p.pop;
+    if (pc && pc.enabled !== false && pc.rateMax) {
+      var pRate = pc.rateMax * lerpCurve(pc.rpmCurve, st.rpm) * lerpCurve(pc.overrunCurve, ovr);
+      this._popAccum += pRate * dt;
+      if (this._popAccum >= this._popNext) {
+        this._popAccum = 0;
+        this._popNext = 0.45 + Math.random() * 1.1;   // Poisson-ish spacing
+        this._pop(now + 0.005 + Math.random() * 0.03,
+          (pc.gain == null ? 0.5 : pc.gain) * (0.25 + Math.random() * 0.6),
+          0.7 + Math.random() * 0.8,
+          this._popCentre(pc, st.rpm));
+      }
     }
 
     var dip = st.shifting ? (p.shiftDip == null ? 0.35 : p.shiftDip) : 1;
@@ -428,23 +474,55 @@
     var base = (p.shift && p.shift.gain) || 0.8;
     this._oneShot(this.shiftBuf, base * (0.5 + 0.5 * (info.intensity || 1)),
       0.9 + Math.random() * 0.2 + (info.dir < 0 ? 0.12 : 0));
+    // Coasting downshift: the exhaust cracks as the clutch bites.
+    if (info.dir < 0 && (info.overrun || 0) > 0.25) {
+      this.popBurst(0.5 + 0.5 * info.overrun, info.rpmAfter);
+    }
   };
 
-  EngineAudio.prototype.playPop = function (info) {
+  /* ---- overrun crackle ----
+   * Scheduled on the audio clock rather than with setTimeout: a pop is a 90 ms
+   * transient, and setTimeout jitter is a large fraction of that. Each event
+   * gets its own bandpass so the crackle sits in the exhaust band and follows
+   * the revs instead of being the same white tick every time.
+   */
+  EngineAudio.prototype._popCentre = function (pc, rpm) {
+    return ((pc.freq || 1100) + (rpm || 3000) * (pc.freqRpm || 0.12))
+      * (0.7 + Math.random() * 0.6);
+  };
+
+  EngineAudio.prototype._pop = function (when, gain, rate, centre) {
+    if (!this.popBuf) return;
+    var src = this.ctx.createBufferSource();
+    src.buffer = this.popBuf;
+    src.playbackRate.value = rate;
+    var bp = this.ctx.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.frequency.value = clamp(centre, 80, this.ctx.sampleRate * 0.45);
+    bp.Q.value = 0.9;
+    var g = this.ctx.createGain();
+    g.gain.value = gain;
+    src.connect(bp); bp.connect(g); g.connect(this.oneShotBus);
+    src.start(when);
+    src.onended = function () { src.disconnect(); bp.disconnect(); g.disconnect(); };
+  };
+
+  /** Dense burst - the transient that marks a lift or a coasting downshift. */
+  EngineAudio.prototype.popBurst = function (intensity, rpm) {
     var p = this.profile || {};
-    if (!p.pop || p.pop.enabled === false) return;
+    var pc = p.pop;
+    if (!pc || pc.enabled === false) return;
     var now = this.ctx.currentTime;
-    if (now - this._lastPop < 0.35) return;
+    if (now - this._lastPop < 0.12) return;
     this._lastPop = now;
-    var self = this;
-    var n = 2 + Math.floor(Math.random() * 4);
+    intensity = clamp(intensity == null ? 1 : intensity, 0.2, 1);
+    var base = pc.gain == null ? 0.5 : pc.gain;
+    var n = Math.max(2, Math.round((pc.burstCount || 6) * intensity));
+    var when = now + 0.01;
     for (var i = 0; i < n; i++) {
-      (function (delay) {
-        setTimeout(function () {
-          self._oneShot(self.popBuf, ((p.pop.gain == null ? 0.5 : p.pop.gain)) * (0.4 + Math.random() * 0.6),
-            0.8 + Math.random() * 0.6);
-        }, delay);
-      })(i * (40 + Math.random() * 90));
+      this._pop(when, base * intensity * (0.4 + Math.random() * 0.6),
+        0.7 + Math.random() * 0.8, this._popCentre(pc, rpm));
+      when += 0.02 + Math.random() * 0.07;
     }
   };
 

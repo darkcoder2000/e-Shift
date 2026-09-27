@@ -15,7 +15,8 @@ sounds/
     mid.wav                         3300 rpm   on throttle
     high_mid.wav                    4600 rpm   on throttle
     top.wav                         6200 rpm   on throttle
-    overrun.wav                     5500 rpm   OFF throttle, coasting
+    overrun_low.wav                 2600 rpm   OFF throttle, coasting in gear
+    overrun_high.wav                5500 rpm   OFF throttle, coasting in gear
 ```
 
 ## What makes a good loop
@@ -37,9 +38,14 @@ sounds/
   like an engine — it goes thin, and its exhaust resonances slide up with the
   pitch. Tight bands are the single most effective thing you can do for
   high-RPM realism.
-- **Record off-throttle too.** A coasting engine is a different instrument, not
-  a quieter one. That is what the `overrun` layer is for; its `loadCurve` fades
-  it out as soon as you touch the throttle.
+- **Record off-throttle too, and at two RPMs.** A coasting engine is a
+  different instrument, not a quieter one. That is what the `overrun_low` and
+  `overrun_high` layers are for; their `loadCurve` fades them out as soon as
+  you touch the throttle, and their `overrunCurve` keeps them silent when the
+  engine is free-revving in neutral rather than being driven by the wheels.
+  Two of them because a stop spans the whole rev range, and one loop cannot
+  cover it inside the ×1.25 budget above. Coast **in gear** for these — lifting
+  off in neutral gives you the wrong noise entirely.
 - Anything the browser can decode works: `.wav`, `.flac`, `.ogg`, `.mp3`.
   Prefer uncompressed — MP3 adds encoder padding that breaks the loop.
 

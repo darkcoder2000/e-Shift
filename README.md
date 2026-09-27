@@ -49,16 +49,49 @@ neutral the engine free-revs. Acceleration comes from a normalised torque curve
 times the gear ratio, minus engine braking, aero drag and rolling resistance. It
 is tuned for feel, not for physical accuracy.
 
+While the clutch is open for a shift the engine is **rev-matched**: it glides,
+on a smoothstep over the shift's progress, onto the RPM the clutch will actually
+close at. So a downshift blips *up* and an upshift falls to exactly the right
+place, and the RPM is continuous when the clutch bites. Interpolating on
+progress rather than chasing at a fixed rate is what guarantees that — dropping
+2300 rpm in 0.2 s needs 11 500 rpm/s, and whatever a rate limit fails to cover
+arrives as a step.
+
+Braking also holds the box low: upshifts are blocked outright, and the
+downshift point climbs with pedal pressure from `shiftDownRpm` toward
+`shiftDownBrakingRpm`.
+
+Alongside `throttle` — a *pedal position* — the state carries three signals
+describing what the engine is actually doing. The audio side needs the
+difference, because coasting in gear at 5000 rpm and free-revving down through
+5000 rpm in neutral are the same pedal and completely different noises:
+
+| | |
+|---|---|
+| `overrun` | 0..1, closed throttle with the clutch locked — the wheels driving the engine. Zero in neutral, during a shift, and near idle. Smoothed, so it does not step when the clutch bites. |
+| `blip` | 0..1, the rev-match during a downshift. Shaped `4·p·(1−p)`, so it is zero at both ends of the shift and peaks where the glide accelerates hardest. |
+| `load` | signed, `torque + blip − overrun`: −1 is full engine braking, +1 full drive. |
+
 **`js/audio.js` — the Web Audio graph.** Each layer of a profile is one looping
 `AudioBufferSourceNode` that is started once and never stopped (stopping clicks).
 Per frame we only move `playbackRate` (`rpm / layer.baseRpm`) and the layer gains:
 
 ```
-weight = layer.gain · loadCurve(throttle) · rpmCurve(rpm) · rateFit
-gain   = weight / √Σweight²  ·  loudnessCurve(rpm) · throttleLoudnessCurve(throttle)
+weight = layer.gain · loadCurve(thr) · overrunCurve(overrun) · rpmCurve(rpm) · rateFit
+gain   = weight / √Σweight²  ·  loudnessCurve(rpm) · throttleLoudnessCurve(thr)
+                              · overrunLoudnessCurve(overrun)
 ```
 
 The equal-power normalisation keeps the total level steady while the blend moves.
+
+`thr` is an *effective* throttle, `max(throttle, blip)`. The driver's foot is
+off during a rev-match but the engine is making noise as though it were on
+throttle, and that substitution is what makes a downshift audible as one.
+
+`overrunCurve` is the second load axis, and it is optional — a layer without
+one behaves exactly as before. It keys on `st.overrun`, so the off-throttle
+layers can be silent in neutral and full when the wheels are driving the
+engine, which `loadCurve` alone cannot express: both are zero throttle.
 
 `rateFit` is the guard against the worst thing this mixer can do: a layer whose
 required rate is outside `playbackRateRange` gets clamped, which means it plays
@@ -92,9 +125,26 @@ Everything from the bus to the lowpass is rebuilt per profile:
   pitched layer can produce. Its playback rate stays at 1.0 on purpose, so its
   loop point never becomes audible.
 
+`drive`, `rasp` and `intake` each take an optional `overrunCurve` as well, and
+`tone` an `overrun` term. Without them the whole graph collapses to its floors
+the instant you lift, which is wrong: a closed throttle at 5000 rpm in gear is
+hard and hollow, not muffled and quiet. Note the multiplier has to evaluate to
+1 at `overrun = 0` to leave on-throttle behaviour untouched, so a stage that
+should gain on the overrun needs a `loadCurve` floor above zero for the boost
+to have something to act on.
+
 A lowpass then opens with load and revs (airbox/muffler) and a compressor catches
 the peaks. One-shots deliberately sit *after* the master gain so the shift dip
 doesn't swallow the clunk that marks the shift.
+
+**Overrun crackle** is a continuous process, not a one-shot. Each frame it
+accumulates `pop.rateMax · rpmCurve(rpm) · overrunCurve(overrun)` events per
+second and fires with jittered spacing, so a deceleration cracks the whole way
+down. Bursts sit on top of that at the lift and at every coasting downshift.
+Pops are scheduled on the **audio clock** rather than with `setTimeout` — a pop
+is a 90 ms transient and timer jitter is a large fraction of that — and each
+gets its own bandpass so the crackle sits in the exhaust band and follows the
+revs instead of being the same white tick every time.
 
 **`js/synth.js` — the placeholder sounds.** Rather than shipping WAVs, Phase 1
 builds the loops in the frequency domain: the buffer is a power of two long, the
@@ -128,8 +178,19 @@ frame loop.
 cross-plane V8 and a synthetic "e-Sound". Switch them in the header; each one
 brings its own gearbox, rev range, torque curve and mix.
 
-Each profile has seven layers: six pitched bands (`idle`, `low`, `low_mid`,
-`mid`, `high_mid`, `top`) plus an `overrun` layer for the off-throttle voice.
+Each profile has eight layers: six pitched bands (`idle`, `low`, `low_mid`,
+`mid`, `high_mid`, `top`) plus `overrun_low` and `overrun_high` for the
+off-throttle voice.
+
+Two overrun layers, not one, for the same reason there are six pitched bands
+rather than three. A stop runs from the limiter down to idle, and stretching a
+single off-throttle loop over roughly 1400–6900 rpm means transposing it by
+×4.6 — straight back into the detuned-layer problem. The same ×0.5…×1.25
+budget applies, so the range needs two. Their windows are placed to reach down
+to where the `overrun` signal itself dies out near idle; below that the pitched
+`idle` and `low` layers take over, which is correct, because an engine barely
+brakes at 1200 rpm.
+
 Six bands rather than three is the other half of the high-RPM fix — it keeps
 every audible layer inside roughly ×0.75…×1.25 of its recorded pitch, where
 sample transposition still sounds like an engine. The bands are deliberately
@@ -178,12 +239,13 @@ You can also load a config file from disk with **Load config…** (handy on
 ### Config reference
 
 Profile level: `engine` (any `js/engine.js` default can be overridden —
-`idleRpm`, `maxRpm`, `redlineRpm`, `shiftUpRpm`, `shiftDownRpm`, `shiftTime`,
-`gearRatios`, `finalDrive`, `enginePower`, `engineBrake`, `brakePower`, `dragC`,
-`rollC`, `launchRpm`, `torqueCurve`), `playbackRateRange`, `maxDetuneCents`,
-`shiftDip`, `loudnessCurve`, `throttleLoudnessCurve`, `tone`
-(`base`/`throttle`/`rpm` terms of the bus lowpass), `formants`, `drive`, `rasp`,
-`intake`, `layers`, `whine`, `shift`, `pop`.
+`idleRpm`, `maxRpm`, `redlineRpm`, `shiftUpRpm`, `shiftDownRpm`,
+`shiftDownBrakingRpm`, `overrunRefRpm`, `shiftTime`, `gearRatios`, `finalDrive`,
+`enginePower`, `engineBrake`, `brakePower`, `dragC`, `rollC`, `launchRpm`,
+`torqueCurve`), `playbackRateRange`, `maxDetuneCents`, `shiftDip`,
+`loudnessCurve`, `throttleLoudnessCurve`, `overrunLoudnessCurve`, `tone`
+(`base`/`throttle`/`overrun`/`rpm` terms of the bus lowpass), `formants`,
+`drive`, `rasp`, `intake`, `layers`, `whine`, `shift`, `pop`.
 
 | Profile key | |
 |---|---|
@@ -192,9 +254,13 @@ Profile level: `engine` (any `js/engine.js` default can be overridden —
 | `rasp` | `{ freq, maxGain, rpmCurve, loadCurve }`. High shelf, gain in dB. |
 | `intake` | `{ gain, q, freq: { base, rpm }, rpmCurve, loadCurve, generate }`. Broadband bed; `freq.base + rpm · freq.rpm` sets the bandpass centre. |
 | `maxDetuneCents` | How far out of tune a layer may be before it is muted. Default 35. |
+| `pop` | `{ gain, enabled, rateMax, rpmCurve, overrunCurve, freq, freqRpm, burstCount, generate }`. `rateMax` is events per second at full crackle; `freq + rpm · freqRpm` sets each pop's bandpass centre. |
+| `overrunLoudnessCurve` | Multiplies the overall level by `f(overrun)`. Engine braking at high revs is loud, not quiet. |
+| `shiftDownBrakingRpm` | The downshift point at full brake; scales up from `shiftDownRpm` with pedal pressure. |
+| `overrunRefRpm` | The RPM by which engine braking counts as "full" for the `overrun` signal. |
 
 Layer level: `id`, `file`, `baseRpm`, `gain`, `pan`, `glide`, `loopStart`,
-`loopEnd`, `startOffset`, `loadCurve`, `rpmCurve`, `generate`.
+`loopEnd`, `startOffset`, `loadCurve`, `overrunCurve`, `rpmCurve`, `generate`.
 
 Generator (`generate`) keys: `type` (`engine`, `noise`, `clunk`, `pop`),
 `order` or `cylinders`, `baseRpm`, `duration`, `harmonics`, `tilt`, `half`,
@@ -223,8 +289,17 @@ scripts over `soundconfig.json` plus `js/synth.js`):
   `playbackRateRange`. The shipped profiles are at 0% of operating points.
 - **Nothing loud should be transposed more than about ×1.25.** The shipped
   profiles peak at ×1.24–×1.25.
+- **The RPM must be continuous when the clutch closes.** Drive a stop and
+  compare the last rev-matched frame with the first locked one; the shipped
+  profiles step by 0 rpm.
+- **An overrun layer must still be audible wherever the `overrun` signal is.**
+  The signal reaches 0.3 at `idleRpm + 0.3 · (overrunRefRpm − idleRpm)`, so an
+  `overrun_low` layer's window has to reach below that — otherwise the bottom
+  of every stop falls back to the on-throttle loops.
 
-Or just drive it and watch the `×` column in the *Layer mix* panel.
+Or just drive it and watch the `×` column in the *Layer mix* panel, and the
+`OVERRUN` lamp, which should light while coasting in gear and stay dark in
+neutral.
 
 ## Status
 

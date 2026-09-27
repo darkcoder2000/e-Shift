@@ -11,6 +11,16 @@
  * casing. Below idle a slipping-clutch model takes over so the car can pull
  * away from standstill.
  *
+ * While the clutch is open for a shift the engine is rev-matched onto the RPM
+ * it will land on, so a downshift blips up instead of sagging toward idle and
+ * then jumping when the clutch bites.
+ *
+ * Alongside `throttle` (a pedal position) the state carries `load`, `overrun`
+ * and `blip`, which describe what the engine is actually doing. The audio side
+ * needs the difference: coasting in gear at 5000 rpm and free-revving down
+ * through 5000 rpm in neutral are the same pedal and completely different
+ * noises.
+ *
  * None of this pretends to be real physics - it is tuned for feel.
  */
 (function (ES) {
@@ -22,7 +32,9 @@
     redlineRpm: 6900,      // where the dial turns red
     shiftUpRpm: 6500,
     shiftDownRpm: 2400,
+    shiftDownBrakingRpm: 3900,  // downshift point under full brake
     shiftTime: 0.22,       // seconds of open clutch
+    overrunRefRpm: 3000,   // rpm by which engine braking counts as "full"
     gearRatios: [3.45, 2.20, 1.55, 1.18, 0.95, 0.78, 0.65, 0.55],
     finalDrive: 41,        // rpm per (km/h * ratio)
     enginePower: 11.5,     // km/h per second, per unit of gear ratio, at peak torque
@@ -74,9 +86,18 @@
     this.clutchSlip = true;
     this.distance = 0;          // km, cosmetic
 
+    // Load signals the audio side needs. `throttle` is a pedal position; these
+    // describe what the engine is actually doing, which is a different thing
+    // whenever the wheels are driving the engine rather than the other way up.
+    this.blip = 0;              // 0..1, rev-match during a downshift
+    this.overrun = 0;           // 0..1, closed throttle with the clutch locked
+    this.load = 0;              // -1 (full engine braking) .. +1 (full drive)
+
     this._limiterPhase = 0;
     this._listeners = {};
     this._shiftLock = 0;
+    this._shiftFrom = this.rpm;
+    this._overrunHold = 0;
   }
 
   Engine.prototype.configure = function (cfg) {
@@ -122,10 +143,11 @@
     this.shiftTimer = this.cfg.shiftTime;
     this.shiftDir = dir;
     this._shiftLock = 0.25;
+    this._shiftFrom = before;   // where the rev-match glide starts
     var after = g === 0 ? this.cfg.idleRpm : Math.max(this.cfg.idleRpm, this.speed * this.ratio() * this.cfg.finalDrive);
     if (!silent) {
       this._emit('shift', {
-        dir: dir, gear: g, rpmBefore: before, rpmAfter: after,
+        dir: dir, gear: g, rpmBefore: before, rpmAfter: after, overrun: this.overrun,
         intensity: clamp(Math.abs(before - after) / 2500, 0.25, 1) * (0.55 + 0.45 * this.throttle)
       });
     }
@@ -149,6 +171,11 @@
     this.distance = 0;
     this.shiftTimer = 0;
     this.limiter = false;
+    this.blip = 0;
+    this.overrun = 0;
+    this.load = 0;
+    this._shiftFrom = this.rpm;
+    this._overrunHold = 0;
   };
 
   /* ---- simulation step ---- */
@@ -169,12 +196,27 @@
     var ratio = this.ratio();
     var lockedRpm = this.gear === 0 ? 0 : this.speed * ratio * c.finalDrive;
     var driveScale = 1;
+    var landing = 0, prog = 0;
 
-    if (this.gear === 0 || shifting) {
-      // clutch open: the engine spins freely
+    if (shifting && this.gear !== 0) {
+      // Clutch open during a gear change, and the engine is rev-matched: it
+      // glides onto the RPM the clutch will actually close at, so a downshift
+      // blips *up* and an upshift falls to exactly the right place.
+      //
+      // Interpolating on the shift's progress rather than chasing at a fixed
+      // rate is what guarantees arrival. A rate limit cannot: dropping 2300 rpm
+      // in 0.2 s needs 11500 rpm/s, and whatever the chase fails to cover shows
+      // up as a step the moment the clutch bites.
+      this.clutchSlip = true;
+      landing = Math.max(c.idleRpm, this.speed * ratio * c.finalDrive);
+      prog = c.shiftTime > 0 ? clamp(1 - this.shiftTimer / c.shiftTime, 0, 1) : 1;
+      var ease = prog * prog * (3 - 2 * prog);
+      this.rpm = this._shiftFrom + (landing - this._shiftFrom) * ease;
+      driveScale = 0;
+    } else if (this.gear === 0 || shifting) {
+      // neutral: the engine spins freely
       this.clutchSlip = true;
       var target = c.idleRpm + this.throttle * (c.maxRpm - c.idleRpm) * 0.97;
-      if (shifting) target = c.idleRpm; // foot-off during the shift
       if (target > this.rpm) this.rpm = Math.min(target, this.rpm + c.freeRevUp * this.torqueAt(this.rpm) * dt);
       else this.rpm = Math.max(target, this.rpm - c.freeRevDown * dt);
       driveScale = 0;
@@ -200,6 +242,27 @@
 
     var torque = (shifting || this.limiter) ? 0 : this.throttle * this.torqueAt(this.rpm) * driveScale;
     var drive = torque * ratio * c.enginePower;
+
+    // What the engine is actually doing, as opposed to where the pedal is. A
+    // rev-match with the foot off is still the engine making power, and a
+    // closed throttle only sounds like overrun when the wheels are driving it -
+    // free-revving down in neutral is a completely different noise.
+    // The blip envelope is 4*prog*(1-prog): zero at both ends of the shift and
+    // peaking in the middle, where the smoothstep glide is accelerating the
+    // engine hardest. It has to reach zero at the edges - a blip that switches
+    // on at full value steps the mix by a quarter of its level in one frame,
+    // which is an audible click at the start of every downshift.
+    this.blip = (shifting && this.gear !== 0 && landing > this._shiftFrom + 50)
+      ? clamp((landing - this._shiftFrom) / 1500, 0, 1) * 4 * prog * (1 - prog)
+      : 0;
+    var rpmDrag = clamp((this.rpm - c.idleRpm) / Math.max(1, c.overrunRefRpm - c.idleRpm), 0, 1);
+    var overrunTarget = (this.gear !== 0 && !shifting && !this.clutchSlip)
+      ? (1 - this.throttle) * rpmDrag
+      : 0;
+    // Smoothed for the same reason, and because a clutch takes a moment to bite.
+    this.overrun += (overrunTarget - this.overrun) * (1 - Math.exp(-12 * dt));
+    this.load = clamp(torque + this.blip - this.overrun, -1, 1);
+
     var brakeDecel = this.brake * c.brakePower;
     var engBrake = (this.gear === 0 || shifting || this.clutchSlip)
       ? 0
@@ -216,11 +279,15 @@
 
     if (this.auto) this._autoShift();
 
-    // overrun: sudden lift at high RPM
-    if (wasThrottle > 0.25 && this.throttleInput < 0.05 && this.rpm > 3800 && !shifting) {
-      if (!this._overrun) { this._overrun = true; this._emit('overrun', { rpm: this.rpm }); }
-    } else if (this.throttleInput > 0.15) {
-      this._overrun = false;
+    // Lift-off burst. A cooldown re-arms it instead of the old latch, which
+    // only cleared when the throttle was reopened and so gave a whole
+    // deceleration exactly one burst. The continuous crackle lives in
+    // audio.js; this event is just the transient that marks the lift.
+    if (this._overrunHold > 0) this._overrunHold = Math.max(0, this._overrunHold - dt);
+    if (wasThrottle > 0.25 && this.throttleInput < 0.05 && this.rpm > 3800
+        && !shifting && this._overrunHold === 0) {
+      this._overrunHold = 1.5;
+      this._emit('overrun', { rpm: this.rpm, intensity: clamp(wasThrottle, 0.4, 1) });
     }
 
     return this.state();
@@ -231,14 +298,21 @@
     if (this.shiftTimer > 0 || this._shiftLock > 0) return;
     if (this.gear === 0) { this.selectGear(1); return; }
 
-    if (this.gear < this.gearCount && this.rpm >= c.shiftUpRpm) {
+    // Braking holds the box low: upshifts are blocked outright, and the
+    // downshift point climbs with pedal pressure. Without this the box shifts
+    // down at a fixed 2400 rpm whatever you are doing, so the whole stop
+    // drones just above that - below every overrun layer's window.
+    var braking = clamp(this.brake, 0, 1);
+    if (this.gear < this.gearCount && this.rpm >= c.shiftUpRpm && braking < 0.15) {
       this.shiftUp();
       return;
     }
-    if (this.gear > 1 && this.rpm <= c.shiftDownRpm) {
+    var downRpm = c.shiftDownRpm
+      + braking * ((c.shiftDownBrakingRpm || c.shiftDownRpm) - c.shiftDownRpm);
+    if (this.gear > 1 && this.rpm <= downRpm) {
       // only downshift if we would not immediately bounce back up
       var next = this.speed * this.cfg.gearRatios[this.gear - 2] * c.finalDrive;
-      if (next < c.shiftUpRpm - 500) this.shiftDown();
+      if (next < c.shiftUpRpm - 500 && next < c.maxRpm * 0.92) this.shiftDown();
     }
   };
 
@@ -255,6 +329,9 @@
       gearCount: this.gearCount,
       throttle: this.throttle,
       brake: this.brake,
+      blip: this.blip,
+      overrun: this.overrun,
+      load: this.load,
       shifting: this.shiftTimer > 0,
       shiftProgress: this.shiftTimer > 0 ? 1 - this.shiftTimer / this.cfg.shiftTime : 1,
       shiftDir: this.shiftDir,

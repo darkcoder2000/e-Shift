@@ -202,6 +202,7 @@
     flag('flag-shift', st.shifting, false);
     flag('flag-limiter', st.limiter, true);
     flag('flag-clutch', st.clutchSlip, false);
+    flag('flag-overrun', st.overrun > 0.3, false);
 
     for (var i = 0; i < mixRows.length && i < audio.layers.length; i++) {
       var lay = audio.layers[i];
@@ -225,7 +226,7 @@
     tach.draw(engine.state(), 1);
 
     engine.on('shift', function (info) { if (audio) audio.playShift(info); });
-    engine.on('overrun', function (info) { if (audio) audio.playPop(info); });
+    engine.on('overrun', function (info) { if (audio) audio.popBurst(info.intensity, info.rpm); });
 
     $('start-btn').addEventListener('click', start);
     $('start').addEventListener('click', function (e) { if (e.target.id === 'start') start(); });
