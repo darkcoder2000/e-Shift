@@ -9,9 +9,13 @@ for:
 ```
 sounds/
   i4/
-    idle.wav        recorded around  950 rpm
-    mid_load.wav    recorded around 3000 rpm
-    full_load.wav   recorded around 5600 rpm
+    idle.wav        recorded around  900 rpm   on throttle
+    low.wav                         1450 rpm   on throttle
+    low_mid.wav                     2250 rpm   on throttle
+    mid.wav                         3300 rpm   on throttle
+    high_mid.wav                    4600 rpm   on throttle
+    top.wav                         6200 rpm   on throttle
+    overrun.wav                     5500 rpm   OFF throttle, coasting
 ```
 
 ## What makes a good loop
@@ -27,9 +31,15 @@ sounds/
 - **Know the RPM it was recorded at** and put it in the layer's `baseRpm`. That
   value is what `playbackRate = rpm / baseRpm` is measured against, so if it is
   wrong the whole layer is transposed.
-- **Space the layers about an octave apart** in RPM (e.g. 950 / 3000 / 5600).
-  Each one then only ever gets pitched roughly ±1 octave, which is where sample
-  pitch-shifting still sounds like an engine.
+- **Space the layers about a factor 1.4–1.6 apart** in RPM, six or so bands
+  across the rev range. Three bands means each one gets stretched about ±1
+  octave, and above roughly ×1.25 a transposed engine recording stops sounding
+  like an engine — it goes thin, and its exhaust resonances slide up with the
+  pitch. Tight bands are the single most effective thing you can do for
+  high-RPM realism.
+- **Record off-throttle too.** A coasting engine is a different instrument, not
+  a quieter one. That is what the `overrun` layer is for; its `loadCurve` fades
+  it out as soon as you touch the throttle.
 - Anything the browser can decode works: `.wav`, `.flac`, `.ogg`, `.mp3`.
   Prefer uncompressed — MP3 adds encoder padding that breaks the loop.
 

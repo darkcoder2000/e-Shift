@@ -151,11 +151,12 @@ kbd {
 .checkline input { accent-color: var(--accent); }
 
 .mix { display: grid; gap: .55rem; }
-.mix-row { display: grid; grid-template-columns: 5.5rem 1fr 2.6rem; align-items: center; gap: .6rem; }
+.mix-row { display: grid; grid-template-columns: 5.5rem 1fr 2.6rem 3rem; align-items: center; gap: .6rem; }
 .mix-row b { font: 600 .74rem/1 var(--mono); color: var(--muted); overflow: hidden; text-overflow: ellipsis; }
 .mix-row .m { height: .4rem; border-radius: 999px; background: #0c0f14; border: 1px solid var(--line); overflow: hidden; }
 .mix-row .m i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, #0ea5e9, #23d3ff); }
 .mix-row u { font: 500 .68rem/1 var(--mono); color: #5c6678; text-decoration: none; text-align: right; }
+.mix-row s { font: 500 .68rem/1 var(--mono); color: #4a5364; text-decoration: none; text-align: right; }
 
 .muted { color: var(--muted); font-size: .82rem; line-height: 1.5; }
 .muted.small { font-size: .76rem; }

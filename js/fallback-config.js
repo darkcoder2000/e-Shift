@@ -2,7 +2,7 @@
 /* Used only when soundconfig.json cannot be fetched (i.e. opened via file://). */
 (function (ES) {
   ES.FALLBACK_CONFIG = {
-    "version": 1,
+    "version": 2,
     "basePath": "",
     "defaultProfile": "hot-hatch-i4",
     "profiles": {
@@ -32,14 +32,150 @@
           "launchRpm": 3300
         },
         "playbackRateRange": [
-          0.42,
-          2.15
+          0.5,
+          1.9
         ],
+        "maxDetuneCents": 35,
         "shiftDip": 0.4,
+        "formants": [
+          {
+            "freq": 110,
+            "q": 1,
+            "gain": 5
+          },
+          {
+            "freq": 230,
+            "q": 1.6,
+            "gain": 6
+          },
+          {
+            "freq": 780,
+            "q": 1.2,
+            "gain": 4
+          },
+          {
+            "freq": 2600,
+            "q": 0.9,
+            "gain": 3
+          }
+        ],
         "tone": {
-          "base": 650,
-          "throttle": 6800,
-          "rpm": 0.5
+          "base": 600,
+          "throttle": 7000,
+          "rpm": 0.55
+        },
+        "drive": {
+          "amount": 0.55,
+          "rpmCurve": [
+            [
+              0,
+              0.25
+            ],
+            [
+              3000,
+              0.5
+            ],
+            [
+              6000,
+              0.9
+            ],
+            [
+              7600,
+              1
+            ]
+          ],
+          "loadCurve": [
+            [
+              0,
+              0.1
+            ],
+            [
+              0.3,
+              0.5
+            ],
+            [
+              1,
+              1
+            ]
+          ]
+        },
+        "rasp": {
+          "freq": 2400,
+          "maxGain": 7,
+          "rpmCurve": [
+            [
+              0,
+              0
+            ],
+            [
+              3500,
+              0.4
+            ],
+            [
+              7600,
+              1
+            ]
+          ],
+          "loadCurve": [
+            [
+              0,
+              0
+            ],
+            [
+              0.35,
+              0.5
+            ],
+            [
+              1,
+              1
+            ]
+          ]
+        },
+        "intake": {
+          "gain": 0.16,
+          "q": 1.1,
+          "freq": {
+            "base": 350,
+            "rpm": 0.34
+          },
+          "rpmCurve": [
+            [
+              0,
+              0
+            ],
+            [
+              2500,
+              0.25
+            ],
+            [
+              5000,
+              0.7
+            ],
+            [
+              7600,
+              1
+            ]
+          ],
+          "loadCurve": [
+            [
+              0,
+              0.28
+            ],
+            [
+              0.4,
+              0.62
+            ],
+            [
+              1,
+              1
+            ]
+          ],
+          "generate": {
+            "type": "noise",
+            "duration": 2.2,
+            "tilt": -0.3,
+            "seed": 707
+          }
         },
         "loudnessCurve": [
           [
@@ -84,71 +220,15 @@
         "layers": [
           {
             "id": "idle",
-            "file": "sounds/i4/idle.wav",
-            "baseRpm": 950,
             "gain": 1,
-            "pan": -0.05,
+            "pan": -0.06,
             "loadCurve": [
               [
                 0,
-                1
+                0.75
               ],
               [
-                0.35,
-                0.8
-              ],
-              [
-                1,
-                0.45
-              ]
-            ],
-            "rpmCurve": [
-              [
-                0,
-                1
-              ],
-              [
-                1600,
-                1
-              ],
-              [
-                2400,
-                0.35
-              ],
-              [
-                3200,
-                0
-              ]
-            ],
-            "generate": {
-              "type": "engine",
-              "cylinders": 4,
-              "baseRpm": 950,
-              "duration": 0.6,
-              "harmonics": 18,
-              "tilt": -1.35,
-              "half": 0.6,
-              "noise": 0.25,
-              "noiseTilt": -1,
-              "formant": 320,
-              "formantGain": 2.4,
-              "grit": 0.15,
-              "seed": 11
-            }
-          },
-          {
-            "id": "mid_load",
-            "file": "sounds/i4/mid_load.wav",
-            "baseRpm": 3000,
-            "gain": 1,
-            "pan": 0.05,
-            "loadCurve": [
-              [
-                0,
-                0.5
-              ],
-              [
-                0.35,
+                0.3,
                 0.9
               ],
               [
@@ -158,60 +238,59 @@
             ],
             "rpmCurve": [
               [
-                1100,
+                0,
+                1
+              ],
+              [
+                855,
+                1
+              ],
+              [
+                954,
+                1
+              ],
+              [
+                1026,
+                0.62
+              ],
+              [
+                1098,
+                0.15
+              ],
+              [
+                1170,
                 0
-              ],
-              [
-                1900,
-                1
-              ],
-              [
-                4200,
-                1
-              ],
-              [
-                5800,
-                0.5
-              ],
-              [
-                7600,
-                0.18
               ]
             ],
             "generate": {
               "type": "engine",
-              "cylinders": 4,
-              "baseRpm": 3000,
-              "duration": 0.5,
-              "harmonics": 26,
-              "tilt": -1.05,
-              "half": 0.4,
-              "noise": 0.3,
-              "noiseTilt": -0.9,
-              "formant": 620,
-              "formantGain": 2,
-              "grit": 0.3,
-              "seed": 22
-            }
+              "order": 2,
+              "baseRpm": 900,
+              "duration": 0.7,
+              "harmonics": 16,
+              "tilt": -1.45,
+              "half": 0.68,
+              "noise": 0.2,
+              "noiseTilt": -1,
+              "shimmer": 0.13,
+              "grit": 0.1,
+              "seed": 10
+            },
+            "file": "sounds/i4/idle.wav",
+            "baseRpm": 900
           },
           {
-            "id": "full_load",
-            "file": "sounds/i4/full_load.wav",
-            "baseRpm": 5600,
-            "gain": 1.05,
-            "pan": 0,
+            "id": "low",
+            "gain": 1.02,
+            "pan": 0.05,
             "loadCurve": [
               [
                 0,
-                0.2
+                0.69
               ],
               [
                 0.3,
-                0.55
-              ],
-              [
-                0.7,
-                1
+                0.88
               ],
               [
                 1,
@@ -220,36 +299,386 @@
             ],
             "rpmCurve": [
               [
-                2400,
+                754,
                 0
               ],
               [
-                3600,
-                0.5
+                928,
+                0.6
               ],
               [
-                5000,
+                1160,
+                0.95
+              ],
+              [
+                1378,
                 1
               ],
               [
-                7600,
+                1537,
+                1
+              ],
+              [
+                1653,
+                0.62
+              ],
+              [
+                1769,
+                0.15
+              ],
+              [
+                1885,
+                0
+              ]
+            ],
+            "generate": {
+              "type": "engine",
+              "order": 2,
+              "baseRpm": 1450,
+              "duration": 0.84,
+              "harmonics": 19,
+              "tilt": -1.32,
+              "half": 0.59,
+              "noise": 0.24,
+              "noiseTilt": -0.94,
+              "shimmer": 0.16,
+              "grit": 0.18,
+              "seed": 11
+            },
+            "file": "sounds/i4/low.wav",
+            "baseRpm": 1450
+          },
+          {
+            "id": "low_mid",
+            "gain": 1.03,
+            "pan": -0.04,
+            "loadCurve": [
+              [
+                0,
+                0.63
+              ],
+              [
+                0.3,
+                0.85
+              ],
+              [
+                1,
+                1
+              ]
+            ],
+            "rpmCurve": [
+              [
+                1170,
+                0
+              ],
+              [
+                1440,
+                0.6
+              ],
+              [
+                1800,
+                0.95
+              ],
+              [
+                2138,
+                1
+              ],
+              [
+                2385,
+                1
+              ],
+              [
+                2565,
+                0.62
+              ],
+              [
+                2745,
+                0.15
+              ],
+              [
+                2925,
+                0
+              ]
+            ],
+            "generate": {
+              "type": "engine",
+              "order": 2,
+              "baseRpm": 2250,
+              "duration": 0.98,
+              "harmonics": 22,
+              "tilt": -1.18,
+              "half": 0.5,
+              "noise": 0.29,
+              "noiseTilt": -0.88,
+              "shimmer": 0.2,
+              "grit": 0.25,
+              "seed": 12
+            },
+            "file": "sounds/i4/low_mid.wav",
+            "baseRpm": 2250
+          },
+          {
+            "id": "mid",
+            "gain": 1.05,
+            "pan": 0.06,
+            "loadCurve": [
+              [
+                0,
+                0.57
+              ],
+              [
+                0.3,
+                0.83
+              ],
+              [
+                1,
+                1
+              ]
+            ],
+            "rpmCurve": [
+              [
+                1716,
+                0
+              ],
+              [
+                2112,
+                0.6
+              ],
+              [
+                2640,
+                0.95
+              ],
+              [
+                3135,
+                1
+              ],
+              [
+                3498,
+                1
+              ],
+              [
+                3762,
+                0.62
+              ],
+              [
+                4026,
+                0.15
+              ],
+              [
+                4290,
+                0
+              ]
+            ],
+            "generate": {
+              "type": "engine",
+              "order": 2,
+              "baseRpm": 3300,
+              "duration": 1.12,
+              "harmonics": 24,
+              "tilt": -1.05,
+              "half": 0.42,
+              "noise": 0.33,
+              "noiseTilt": -0.82,
+              "shimmer": 0.23,
+              "grit": 0.33,
+              "seed": 13
+            },
+            "file": "sounds/i4/mid.wav",
+            "baseRpm": 3300
+          },
+          {
+            "id": "high_mid",
+            "gain": 1.06,
+            "pan": -0.03,
+            "loadCurve": [
+              [
+                0,
+                0.51
+              ],
+              [
+                0.3,
+                0.8
+              ],
+              [
+                1,
+                1
+              ]
+            ],
+            "rpmCurve": [
+              [
+                2392,
+                0
+              ],
+              [
+                2944,
+                0.6
+              ],
+              [
+                3680,
+                0.95
+              ],
+              [
+                4370,
+                1
+              ],
+              [
+                4876,
+                1
+              ],
+              [
+                5244,
+                0.62
+              ],
+              [
+                5612,
+                0.15
+              ],
+              [
+                5980,
+                0
+              ]
+            ],
+            "generate": {
+              "type": "engine",
+              "order": 2,
+              "baseRpm": 4600,
+              "duration": 1.26,
+              "harmonics": 27,
+              "tilt": -0.91,
+              "half": 0.33,
+              "noise": 0.38,
+              "noiseTilt": -0.76,
+              "shimmer": 0.27,
+              "grit": 0.4,
+              "seed": 14
+            },
+            "file": "sounds/i4/high_mid.wav",
+            "baseRpm": 4600
+          },
+          {
+            "id": "top",
+            "gain": 1.08,
+            "pan": 0,
+            "loadCurve": [
+              [
+                0,
+                0.45
+              ],
+              [
+                0.3,
+                0.78
+              ],
+              [
+                1,
+                1
+              ]
+            ],
+            "rpmCurve": [
+              [
+                3224,
+                0
+              ],
+              [
+                3968,
+                0.6
+              ],
+              [
+                4960,
+                0.95
+              ],
+              [
+                5890,
+                1
+              ],
+              [
+                8060,
                 1
               ]
             ],
             "generate": {
               "type": "engine",
-              "cylinders": 4,
-              "baseRpm": 5600,
-              "duration": 0.45,
+              "order": 2,
+              "baseRpm": 6200,
+              "duration": 1.4,
               "harmonics": 30,
-              "tilt": -0.85,
-              "half": 0.3,
-              "noise": 0.38,
-              "noiseTilt": -0.75,
-              "formant": 900,
-              "formantGain": 1.9,
-              "grit": 0.45,
-              "seed": 33
+              "tilt": -0.78,
+              "half": 0.24,
+              "noise": 0.42,
+              "noiseTilt": -0.7,
+              "shimmer": 0.3,
+              "grit": 0.48,
+              "seed": 15
+            },
+            "file": "sounds/i4/top.wav",
+            "baseRpm": 6200
+          },
+          {
+            "id": "overrun",
+            "file": "sounds/i4/overrun.wav",
+            "baseRpm": 5500,
+            "gain": 0.95,
+            "pan": 0.04,
+            "loadCurve": [
+              [
+                0,
+                1
+              ],
+              [
+                0.22,
+                0.45
+              ],
+              [
+                0.5,
+                0
+              ],
+              [
+                1,
+                0
+              ]
+            ],
+            "rpmCurve": [
+              [
+                2860,
+                0
+              ],
+              [
+                3520,
+                0.5
+              ],
+              [
+                4510,
+                0.9
+              ],
+              [
+                5225,
+                1
+              ],
+              [
+                5940,
+                0.9
+              ],
+              [
+                6490,
+                0.45
+              ],
+              [
+                6875,
+                0
+              ]
+            ],
+            "generate": {
+              "type": "engine",
+              "order": 2,
+              "baseRpm": 5500,
+              "duration": 1.1,
+              "harmonics": 22,
+              "tilt": -1.3,
+              "half": 0.85,
+              "noise": 0.3,
+              "noiseTilt": -0.85,
+              "shimmer": 0.26,
+              "grit": 0.2,
+              "seed": 100
             }
           }
         ],
@@ -353,14 +782,150 @@
           ]
         },
         "playbackRateRange": [
-          0.42,
-          2.15
+          0.5,
+          1.9
         ],
+        "maxDetuneCents": 35,
         "shiftDip": 0.35,
+        "formants": [
+          {
+            "freq": 85,
+            "q": 0.9,
+            "gain": 6
+          },
+          {
+            "freq": 185,
+            "q": 1.5,
+            "gain": 7
+          },
+          {
+            "freq": 620,
+            "q": 1.1,
+            "gain": 4
+          },
+          {
+            "freq": 1900,
+            "q": 0.8,
+            "gain": 2
+          }
+        ],
         "tone": {
-          "base": 520,
-          "throttle": 5200,
-          "rpm": 0.4
+          "base": 500,
+          "throttle": 5600,
+          "rpm": 0.45
+        },
+        "drive": {
+          "amount": 0.7,
+          "rpmCurve": [
+            [
+              0,
+              0.3
+            ],
+            [
+              2500,
+              0.6
+            ],
+            [
+              5000,
+              0.95
+            ],
+            [
+              7000,
+              1
+            ]
+          ],
+          "loadCurve": [
+            [
+              0,
+              0.12
+            ],
+            [
+              0.3,
+              0.55
+            ],
+            [
+              1,
+              1
+            ]
+          ]
+        },
+        "rasp": {
+          "freq": 2000,
+          "maxGain": 6,
+          "rpmCurve": [
+            [
+              0,
+              0
+            ],
+            [
+              3000,
+              0.45
+            ],
+            [
+              7000,
+              1
+            ]
+          ],
+          "loadCurve": [
+            [
+              0,
+              0
+            ],
+            [
+              0.35,
+              0.5
+            ],
+            [
+              1,
+              1
+            ]
+          ]
+        },
+        "intake": {
+          "gain": 0.19,
+          "q": 1,
+          "freq": {
+            "base": 280,
+            "rpm": 0.28
+          },
+          "rpmCurve": [
+            [
+              0,
+              0
+            ],
+            [
+              2000,
+              0.3
+            ],
+            [
+              4500,
+              0.75
+            ],
+            [
+              7000,
+              1
+            ]
+          ],
+          "loadCurve": [
+            [
+              0,
+              0.3
+            ],
+            [
+              0.4,
+              0.65
+            ],
+            [
+              1,
+              1
+            ]
+          ],
+          "generate": {
+            "type": "noise",
+            "duration": 2.4,
+            "tilt": -0.45,
+            "seed": 808
+          }
         },
         "loudnessCurve": [
           [
@@ -410,62 +975,10 @@
             "loadCurve": [
               [
                 0,
-                1
+                0.75
               ],
               [
-                0.35,
-                0.8
-              ],
-              [
-                1,
-                0.4
-              ]
-            ],
-            "rpmCurve": [
-              [
-                0,
-                1
-              ],
-              [
-                1400,
-                1
-              ],
-              [
-                2200,
-                0.35
-              ],
-              [
-                3000,
-                0
-              ]
-            ],
-            "generate": {
-              "type": "engine",
-              "cylinders": 8,
-              "baseRpm": 800,
-              "duration": 0.7,
-              "harmonics": 20,
-              "tilt": -1.5,
-              "half": 0.9,
-              "oddBias": 0.75,
-              "noise": 0.2,
-              "formant": 260,
-              "formantGain": 2.6,
-              "grit": 0.2,
-              "seed": 41
-            }
-          },
-          {
-            "id": "mid_load",
-            "gain": 1,
-            "pan": 0.06,
-            "loadCurve": [
-              [
-                0,
-                0.5
-              ],
-              [
-                0.35,
+                0.3,
                 0.9
               ],
               [
@@ -475,58 +988,57 @@
             ],
             "rpmCurve": [
               [
-                900,
-                0
-              ],
-              [
-                1700,
+                0,
                 1
               ],
               [
-                3900,
+                665,
                 1
               ],
               [
-                5400,
-                0.5
+                742,
+                1
               ],
               [
-                7000,
+                798,
+                0.62
+              ],
+              [
+                854,
                 0.15
+              ],
+              [
+                910,
+                0
               ]
             ],
             "generate": {
               "type": "engine",
-              "cylinders": 8,
-              "baseRpm": 2600,
-              "duration": 0.5,
-              "harmonics": 26,
-              "tilt": -1.15,
-              "half": 0.6,
-              "oddBias": 0.8,
-              "noise": 0.26,
-              "formant": 520,
-              "formantGain": 2.1,
-              "grit": 0.35,
-              "seed": 42
+              "order": 4,
+              "baseRpm": 700,
+              "duration": 0.7,
+              "harmonics": 16,
+              "tilt": -1.45,
+              "half": 0.68,
+              "noise": 0.2,
+              "noiseTilt": -1,
+              "shimmer": 0.13,
+              "grit": 0.1,
+              "seed": 40
             }
           },
           {
-            "id": "full_load",
-            "gain": 1.1,
-            "pan": 0,
+            "id": "low",
+            "gain": 1.02,
+            "pan": 0.05,
             "loadCurve": [
               [
                 0,
-                0.18
+                0.69
               ],
               [
                 0.3,
-                0.55
-              ],
-              [
-                0.7,
-                1
+                0.88
               ],
               [
                 1,
@@ -535,36 +1047,374 @@
             ],
             "rpmCurve": [
               [
-                2200,
+                598,
                 0
               ],
               [
-                3300,
-                0.5
+                736,
+                0.6
               ],
               [
-                4600,
+                920,
+                0.95
+              ],
+              [
+                1093,
                 1
               ],
               [
-                7000,
+                1219,
+                1
+              ],
+              [
+                1311,
+                0.62
+              ],
+              [
+                1403,
+                0.15
+              ],
+              [
+                1495,
+                0
+              ]
+            ],
+            "generate": {
+              "type": "engine",
+              "order": 4,
+              "baseRpm": 1150,
+              "duration": 0.84,
+              "harmonics": 19,
+              "tilt": -1.32,
+              "half": 0.59,
+              "noise": 0.24,
+              "noiseTilt": -0.94,
+              "shimmer": 0.16,
+              "grit": 0.18,
+              "seed": 41
+            }
+          },
+          {
+            "id": "low_mid",
+            "gain": 1.03,
+            "pan": -0.04,
+            "loadCurve": [
+              [
+                0,
+                0.63
+              ],
+              [
+                0.3,
+                0.85
+              ],
+              [
+                1,
+                1
+              ]
+            ],
+            "rpmCurve": [
+              [
+                936,
+                0
+              ],
+              [
+                1152,
+                0.6
+              ],
+              [
+                1440,
+                0.95
+              ],
+              [
+                1710,
+                1
+              ],
+              [
+                1908,
+                1
+              ],
+              [
+                2052,
+                0.62
+              ],
+              [
+                2196,
+                0.15
+              ],
+              [
+                2340,
+                0
+              ]
+            ],
+            "generate": {
+              "type": "engine",
+              "order": 4,
+              "baseRpm": 1800,
+              "duration": 0.98,
+              "harmonics": 22,
+              "tilt": -1.18,
+              "half": 0.5,
+              "noise": 0.29,
+              "noiseTilt": -0.88,
+              "shimmer": 0.2,
+              "grit": 0.25,
+              "seed": 42
+            }
+          },
+          {
+            "id": "mid",
+            "gain": 1.05,
+            "pan": 0.06,
+            "loadCurve": [
+              [
+                0,
+                0.57
+              ],
+              [
+                0.3,
+                0.83
+              ],
+              [
+                1,
+                1
+              ]
+            ],
+            "rpmCurve": [
+              [
+                1378,
+                0
+              ],
+              [
+                1696,
+                0.6
+              ],
+              [
+                2120,
+                0.95
+              ],
+              [
+                2518,
+                1
+              ],
+              [
+                2809,
+                1
+              ],
+              [
+                3021,
+                0.62
+              ],
+              [
+                3233,
+                0.15
+              ],
+              [
+                3445,
+                0
+              ]
+            ],
+            "generate": {
+              "type": "engine",
+              "order": 4,
+              "baseRpm": 2650,
+              "duration": 1.12,
+              "harmonics": 24,
+              "tilt": -1.05,
+              "half": 0.42,
+              "noise": 0.33,
+              "noiseTilt": -0.82,
+              "shimmer": 0.23,
+              "grit": 0.33,
+              "seed": 43
+            }
+          },
+          {
+            "id": "high_mid",
+            "gain": 1.06,
+            "pan": -0.03,
+            "loadCurve": [
+              [
+                0,
+                0.51
+              ],
+              [
+                0.3,
+                0.8
+              ],
+              [
+                1,
+                1
+              ]
+            ],
+            "rpmCurve": [
+              [
+                2002,
+                0
+              ],
+              [
+                2464,
+                0.6
+              ],
+              [
+                3080,
+                0.95
+              ],
+              [
+                3658,
+                1
+              ],
+              [
+                4081,
+                1
+              ],
+              [
+                4389,
+                0.62
+              ],
+              [
+                4697,
+                0.15
+              ],
+              [
+                5005,
+                0
+              ]
+            ],
+            "generate": {
+              "type": "engine",
+              "order": 4,
+              "baseRpm": 3850,
+              "duration": 1.26,
+              "harmonics": 27,
+              "tilt": -0.91,
+              "half": 0.33,
+              "noise": 0.38,
+              "noiseTilt": -0.76,
+              "shimmer": 0.27,
+              "grit": 0.4,
+              "seed": 44
+            }
+          },
+          {
+            "id": "top",
+            "gain": 1.08,
+            "pan": 0,
+            "loadCurve": [
+              [
+                0,
+                0.45
+              ],
+              [
+                0.3,
+                0.78
+              ],
+              [
+                1,
+                1
+              ]
+            ],
+            "rpmCurve": [
+              [
+                2912,
+                0
+              ],
+              [
+                3584,
+                0.6
+              ],
+              [
+                4480,
+                0.95
+              ],
+              [
+                5320,
+                1
+              ],
+              [
+                7280,
                 1
               ]
             ],
             "generate": {
               "type": "engine",
-              "cylinders": 8,
-              "baseRpm": 4800,
-              "duration": 0.45,
+              "order": 4,
+              "baseRpm": 5600,
+              "duration": 1.4,
               "harmonics": 30,
-              "tilt": -0.95,
-              "half": 0.45,
-              "oddBias": 0.85,
-              "noise": 0.34,
-              "formant": 780,
-              "formantGain": 1.8,
-              "grit": 0.5,
-              "seed": 43
+              "tilt": -0.78,
+              "half": 0.24,
+              "noise": 0.42,
+              "noiseTilt": -0.7,
+              "shimmer": 0.3,
+              "grit": 0.48,
+              "seed": 45
+            }
+          },
+          {
+            "id": "overrun",
+            "gain": 0.95,
+            "pan": 0.04,
+            "loadCurve": [
+              [
+                0,
+                1
+              ],
+              [
+                0.22,
+                0.45
+              ],
+              [
+                0.5,
+                0
+              ],
+              [
+                1,
+                0
+              ]
+            ],
+            "rpmCurve": [
+              [
+                2600,
+                0
+              ],
+              [
+                3200,
+                0.5
+              ],
+              [
+                4100,
+                0.9
+              ],
+              [
+                4750,
+                1
+              ],
+              [
+                5400,
+                0.9
+              ],
+              [
+                5900,
+                0.45
+              ],
+              [
+                6250,
+                0
+              ]
+            ],
+            "generate": {
+              "type": "engine",
+              "order": 4,
+              "baseRpm": 5000,
+              "duration": 1.1,
+              "harmonics": 22,
+              "tilt": -1.3,
+              "half": 0.85,
+              "noise": 0.3,
+              "noiseTilt": -0.85,
+              "shimmer": 0.26,
+              "grit": 0.2,
+              "seed": 130
             }
           }
         ],
@@ -637,14 +1487,142 @@
           ]
         },
         "playbackRateRange": [
-          0.42,
-          2.2
+          0.5,
+          1.9
         ],
+        "maxDetuneCents": 35,
         "shiftDip": 0.25,
+        "formants": [
+          {
+            "freq": 300,
+            "q": 1.3,
+            "gain": 4
+          },
+          {
+            "freq": 900,
+            "q": 1.1,
+            "gain": 5
+          },
+          {
+            "freq": 2400,
+            "q": 1,
+            "gain": 4
+          },
+          {
+            "freq": 5200,
+            "q": 0.8,
+            "gain": 3
+          }
+        ],
         "tone": {
           "base": 900,
           "throttle": 8000,
           "rpm": 0.6
+        },
+        "drive": {
+          "amount": 0.3,
+          "rpmCurve": [
+            [
+              0,
+              0.2
+            ],
+            [
+              4000,
+              0.6
+            ],
+            [
+              8200,
+              1
+            ]
+          ],
+          "loadCurve": [
+            [
+              0,
+              0.1
+            ],
+            [
+              0.3,
+              0.5
+            ],
+            [
+              1,
+              1
+            ]
+          ]
+        },
+        "rasp": {
+          "freq": 3200,
+          "maxGain": 5,
+          "rpmCurve": [
+            [
+              0,
+              0
+            ],
+            [
+              4000,
+              0.5
+            ],
+            [
+              8200,
+              1
+            ]
+          ],
+          "loadCurve": [
+            [
+              0,
+              0.1
+            ],
+            [
+              0.35,
+              0.55
+            ],
+            [
+              1,
+              1
+            ]
+          ]
+        },
+        "intake": {
+          "gain": 0.1,
+          "q": 1.6,
+          "freq": {
+            "base": 600,
+            "rpm": 0.5
+          },
+          "rpmCurve": [
+            [
+              0,
+              0
+            ],
+            [
+              3000,
+              0.3
+            ],
+            [
+              8200,
+              1
+            ]
+          ],
+          "loadCurve": [
+            [
+              0,
+              0.32
+            ],
+            [
+              0.4,
+              0.66
+            ],
+            [
+              1,
+              1
+            ]
+          ],
+          "generate": {
+            "type": "noise",
+            "duration": 2,
+            "tilt": -0.15,
+            "seed": 909
+          }
         },
         "loudnessCurve": [
           [
@@ -685,66 +1663,15 @@
         "layers": [
           {
             "id": "idle",
-            "gain": 0.9,
-            "pan": -0.1,
-            "loadCurve": [
-              [
-                0,
-                1
-              ],
-              [
-                0.4,
-                0.8
-              ],
-              [
-                1,
-                0.5
-              ]
-            ],
-            "rpmCurve": [
-              [
-                0,
-                1
-              ],
-              [
-                1800,
-                1
-              ],
-              [
-                2800,
-                0.35
-              ],
-              [
-                3600,
-                0
-              ]
-            ],
-            "generate": {
-              "type": "engine",
-              "order": 3,
-              "baseRpm": 1000,
-              "duration": 0.6,
-              "harmonics": 14,
-              "tilt": -1.2,
-              "half": 0.12,
-              "noise": 0.06,
-              "formant": 480,
-              "formantGain": 2.2,
-              "grit": 0.05,
-              "seed": 51
-            }
-          },
-          {
-            "id": "mid_load",
             "gain": 1,
-            "pan": 0.1,
+            "pan": -0.06,
             "loadCurve": [
               [
                 0,
-                0.45
+                0.75
               ],
               [
-                0.35,
+                0.3,
                 0.9
               ],
               [
@@ -754,57 +1681,258 @@
             ],
             "rpmCurve": [
               [
-                1200,
+                0,
+                1
+              ],
+              [
+                903,
+                1
+              ],
+              [
+                1007,
+                1
+              ],
+              [
+                1083,
+                0.62
+              ],
+              [
+                1159,
+                0.15
+              ],
+              [
+                1235,
                 0
-              ],
-              [
-                2200,
-                1
-              ],
-              [
-                4600,
-                1
-              ],
-              [
-                6200,
-                0.55
-              ],
-              [
-                8200,
-                0.2
               ]
             ],
             "generate": {
               "type": "engine",
               "order": 6,
-              "baseRpm": 3200,
-              "duration": 0.5,
+              "baseRpm": 950,
+              "duration": 0.7,
               "harmonics": 16,
-              "tilt": -0.95,
-              "half": 0.1,
-              "noise": 0.08,
-              "formant": 1200,
-              "formantGain": 2,
-              "grit": 0.12,
+              "tilt": -1.45,
+              "half": 0.68,
+              "noise": 0.2,
+              "noiseTilt": -1,
+              "shimmer": 0.13,
+              "grit": 0.1,
+              "seed": 50
+            }
+          },
+          {
+            "id": "low",
+            "gain": 1.02,
+            "pan": 0.05,
+            "loadCurve": [
+              [
+                0,
+                0.69
+              ],
+              [
+                0.3,
+                0.88
+              ],
+              [
+                1,
+                1
+              ]
+            ],
+            "rpmCurve": [
+              [
+                806,
+                0
+              ],
+              [
+                992,
+                0.6
+              ],
+              [
+                1240,
+                0.95
+              ],
+              [
+                1473,
+                1
+              ],
+              [
+                1643,
+                1
+              ],
+              [
+                1767,
+                0.62
+              ],
+              [
+                1891,
+                0.15
+              ],
+              [
+                2015,
+                0
+              ]
+            ],
+            "generate": {
+              "type": "engine",
+              "order": 6,
+              "baseRpm": 1550,
+              "duration": 0.84,
+              "harmonics": 19,
+              "tilt": -1.32,
+              "half": 0.59,
+              "noise": 0.24,
+              "noiseTilt": -0.94,
+              "shimmer": 0.16,
+              "grit": 0.18,
+              "seed": 51
+            }
+          },
+          {
+            "id": "low_mid",
+            "gain": 1.03,
+            "pan": -0.04,
+            "loadCurve": [
+              [
+                0,
+                0.63
+              ],
+              [
+                0.3,
+                0.85
+              ],
+              [
+                1,
+                1
+              ]
+            ],
+            "rpmCurve": [
+              [
+                1248,
+                0
+              ],
+              [
+                1536,
+                0.6
+              ],
+              [
+                1920,
+                0.95
+              ],
+              [
+                2280,
+                1
+              ],
+              [
+                2544,
+                1
+              ],
+              [
+                2736,
+                0.62
+              ],
+              [
+                2928,
+                0.15
+              ],
+              [
+                3120,
+                0
+              ]
+            ],
+            "generate": {
+              "type": "engine",
+              "order": 6,
+              "baseRpm": 2400,
+              "duration": 0.98,
+              "harmonics": 22,
+              "tilt": -1.18,
+              "half": 0.5,
+              "noise": 0.29,
+              "noiseTilt": -0.88,
+              "shimmer": 0.2,
+              "grit": 0.25,
               "seed": 52
             }
           },
           {
-            "id": "full_load",
-            "gain": 1,
-            "pan": 0,
+            "id": "mid",
+            "gain": 1.05,
+            "pan": 0.06,
             "loadCurve": [
               [
                 0,
-                0.15
+                0.57
               ],
               [
                 0.3,
-                0.5
+                0.83
               ],
               [
-                0.7,
+                1,
                 1
+              ]
+            ],
+            "rpmCurve": [
+              [
+                1846,
+                0
+              ],
+              [
+                2272,
+                0.6
+              ],
+              [
+                2840,
+                0.95
+              ],
+              [
+                3373,
+                1
+              ],
+              [
+                3763,
+                1
+              ],
+              [
+                4047,
+                0.62
+              ],
+              [
+                4331,
+                0.15
+              ],
+              [
+                4615,
+                0
+              ]
+            ],
+            "generate": {
+              "type": "engine",
+              "order": 6,
+              "baseRpm": 3550,
+              "duration": 1.12,
+              "harmonics": 24,
+              "tilt": -1.05,
+              "half": 0.42,
+              "noise": 0.33,
+              "noiseTilt": -0.82,
+              "shimmer": 0.23,
+              "grit": 0.33,
+              "seed": 53
+            }
+          },
+          {
+            "id": "high_mid",
+            "gain": 1.06,
+            "pan": -0.03,
+            "loadCurve": [
+              [
+                0,
+                0.51
+              ],
+              [
+                0.3,
+                0.8
               ],
               [
                 1,
@@ -817,31 +1945,169 @@
                 0
               ],
               [
-                3800,
-                0.5
+                3200,
+                0.6
               ],
               [
-                5200,
+                4000,
+                0.95
+              ],
+              [
+                4750,
                 1
               ],
               [
-                8200,
+                5300,
+                1
+              ],
+              [
+                5700,
+                0.62
+              ],
+              [
+                6100,
+                0.15
+              ],
+              [
+                6500,
+                0
+              ]
+            ],
+            "generate": {
+              "type": "engine",
+              "order": 6,
+              "baseRpm": 5000,
+              "duration": 1.26,
+              "harmonics": 27,
+              "tilt": -0.91,
+              "half": 0.33,
+              "noise": 0.38,
+              "noiseTilt": -0.76,
+              "shimmer": 0.27,
+              "grit": 0.4,
+              "seed": 54
+            }
+          },
+          {
+            "id": "top",
+            "gain": 1.08,
+            "pan": 0,
+            "loadCurve": [
+              [
+                0,
+                0.45
+              ],
+              [
+                0.3,
+                0.78
+              ],
+              [
+                1,
+                1
+              ]
+            ],
+            "rpmCurve": [
+              [
+                3588,
+                0
+              ],
+              [
+                4416,
+                0.6
+              ],
+              [
+                5520,
+                0.95
+              ],
+              [
+                6555,
+                1
+              ],
+              [
+                8970,
                 1
               ]
             ],
             "generate": {
               "type": "engine",
               "order": 6,
-              "baseRpm": 5800,
-              "duration": 0.45,
-              "harmonics": 20,
-              "tilt": -0.7,
-              "half": 0.08,
-              "noise": 0.12,
-              "formant": 1800,
-              "formantGain": 1.8,
+              "baseRpm": 6900,
+              "duration": 1.4,
+              "harmonics": 30,
+              "tilt": -0.78,
+              "half": 0.24,
+              "noise": 0.42,
+              "noiseTilt": -0.7,
+              "shimmer": 0.3,
+              "grit": 0.48,
+              "seed": 55
+            }
+          },
+          {
+            "id": "overrun",
+            "gain": 0.95,
+            "pan": 0.04,
+            "loadCurve": [
+              [
+                0,
+                1
+              ],
+              [
+                0.22,
+                0.45
+              ],
+              [
+                0.5,
+                0
+              ],
+              [
+                1,
+                0
+              ]
+            ],
+            "rpmCurve": [
+              [
+                3068,
+                0
+              ],
+              [
+                3776,
+                0.5
+              ],
+              [
+                4838,
+                0.9
+              ],
+              [
+                5605,
+                1
+              ],
+              [
+                6372,
+                0.9
+              ],
+              [
+                6962,
+                0.45
+              ],
+              [
+                7375,
+                0
+              ]
+            ],
+            "generate": {
+              "type": "engine",
+              "order": 6,
+              "baseRpm": 5900,
+              "duration": 1.1,
+              "harmonics": 22,
+              "tilt": -1.3,
+              "half": 0.85,
+              "noise": 0.3,
+              "noiseTilt": -0.85,
+              "shimmer": 0.26,
               "grit": 0.2,
-              "seed": 53
+              "seed": 140
             }
           }
         ],

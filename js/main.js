@@ -26,7 +26,7 @@
       })
       .catch(function () {
         note('soundconfig.json could not be fetched (file:// ?) - using the built-in copy. '
-          + 'Run a local web server to edit the JSON live.');
+          + 'Run a local web server to edit the JSON live.', true);
         return JSON.parse(JSON.stringify(ES.FALLBACK_CONFIG));
       });
   }
@@ -55,25 +55,31 @@
     engine.reset();
     buildMixRows(p);
     if (!audio) return Promise.resolve();
-    return audio.load(p, config.basePath || '').then(function (notes) {
+    clearNotes();
+    return audio.load(p, config.basePath || '').then(function () {
       audio.setVolume($('volume').value / 100);
-      clearNotes();
-      notes.forEach(note);
     });
   }
 
   /* ---------------- notes / mix panel ---------------- */
 
-  var pendingNotes = [];
-  function note(text) {
-    pendingNotes.push(text);
+  // Notes arrive both at load time (missing WAVs) and mid-drive (a layer being
+  // range-limited only shows up once you rev through that part of the range),
+  // so they are pushed, not polled. "sticky" ones survive a profile switch.
+  var stickyNotes = [];
+  function note(text, sticky) {
+    if (sticky && stickyNotes.indexOf(text) < 0) stickyNotes.push(text);
     var ul = $('notes');
     if (!ul) return;
     var li = document.createElement('li');
     li.textContent = text;
     ul.appendChild(li);
   }
-  function clearNotes() { pendingNotes = []; if ($('notes')) $('notes').innerHTML = ''; }
+  function clearNotes() {
+    if (!$('notes')) return;
+    $('notes').innerHTML = '';
+    stickyNotes.forEach(function (t) { note(t); });
+  }
 
   var mixRows = [];
   function buildMixRows(p) {
@@ -83,14 +89,23 @@
     (p.layers || []).forEach(function (l) {
       var row = document.createElement('div');
       row.className = 'mix-row';
-      row.innerHTML = '<b></b><div class="m"><i></i></div><u>0%</u>';
+      row.innerHTML = '<b></b><div class="m"><i></i></div><u>0%</u><s>&times;1.00</s>';
       row.querySelector('b').textContent = l.id || 'layer';
       host.appendChild(row);
-      mixRows.push({ bar: row.querySelector('i'), val: row.querySelector('u') });
+      mixRows.push({
+        bar: row.querySelector('i'),
+        val: row.querySelector('u'),
+        rate: row.querySelector('s')
+      });
     });
-    $('mix-note').textContent = p.whine && p.whine.gain > 0
-      ? 'Plus a synthesised motor whine at order ' + p.whine.order + '.'
-      : '';
+    var extras = [];
+    if (p.intake && p.intake.gain > 0) extras.push('intake bed');
+    if (p.whine && p.whine.gain > 0) extras.push('motor whine at order ' + p.whine.order);
+    $('mix-note').textContent = extras.length
+      ? 'Plus ' + extras.join(' and ') + '. The × column is each layer’s '
+        + 'playback rate — keep it near ×1 for the most natural sound.'
+      : 'The × column is each layer’s playback rate — keep it near '
+        + '×1 for the most natural sound.';
   }
 
   /* ---------------- start ---------------- */
@@ -104,13 +119,13 @@
     var AC = window.AudioContext || window.webkitAudioContext;
     ctx = new AC();
     audio = new ES.EngineAudio(ctx);
+    audio.onNote = note;
 
     var resume = ctx.state === 'suspended' ? ctx.resume() : Promise.resolve();
     resume
       .then(function () { return audio.load(config.profiles[profileKey], config.basePath || ''); })
-      .then(function (notes) {
+      .then(function () {
         audio.setVolume($('volume').value / 100);
-        notes.forEach(note);
         $('start').classList.add('hidden');
         document.querySelector('.app').setAttribute('aria-hidden', 'false');
         running = true;
@@ -189,9 +204,11 @@
     flag('flag-clutch', st.clutchSlip, false);
 
     for (var i = 0; i < mixRows.length && i < audio.layers.length; i++) {
-      var lvl = clamp(audio.layers[i].level, 0, 1);
+      var lay = audio.layers[i];
+      var lvl = clamp(lay.level, 0, 1);
       mixRows[i].bar.style.width = (lvl * 100).toFixed(1) + '%';
       mixRows[i].val.textContent = Math.round(lvl * 100) + '%';
+      mixRows[i].rate.textContent = '×' + lay.rate.toFixed(2);
     }
   }
 

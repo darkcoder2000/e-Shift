@@ -59,20 +59,42 @@ gain   = weight / √Σweight²  ·  loudnessCurve(rpm) · throttleLoudnessCurve
 ```
 
 The equal-power normalisation keeps the total level steady while the blend moves.
-`rateFit` fades a layer out as its required playback rate leaves
-`playbackRateRange`, so no layer ever sits droning at a wrongly clamped pitch —
-the guide's "don't pitch one sample across the whole range" note, enforced in
-code. A lowpass on the bus opens with load and revs (airbox/muffler), and a
-compressor catches the peaks.
+
+`rateFit` is the guard against the worst thing this mixer can do: a layer whose
+required rate is outside `playbackRateRange` gets clamped, which means it plays
+*out of tune* against the correctly pitched layers. So the fade is driven by the
+actual detune in cents, not by the rate ratio, and anything sour is silent well
+before it is audible. It is a safety net rather than the crossfade — it collapses
+over about 2% of RPM — so each layer's `rpmCurve` should already reach 0 before
+its rate limit. When a profile gets that wrong the app says so in the *Sound
+profile* panel.
 
 ```
 layer[i] -> gain -> pan -\
-whine osc -> gain --------> bus -> lowpass -> master -> comp -> out
-shift clunk / pops ----------------------------------/
+whine osc -> gain --------> bus -> formants -> drive -> rasp -> lowpass -> master -> comp -> out
+intake noise -> bp -> gain /                                                          |
+shift clunk / pops -------------------------------------------------------------------
 ```
 
-One-shots deliberately sit *after* the master gain so the shift dip doesn't
-swallow the clunk that marks the shift.
+Everything from the bus to the lowpass is rebuilt per profile:
+
+- **formants** — a chain of fixed peaking filters. A resonance baked into a
+  sample transposes with it (the "sped-up tape" artifact); a real exhaust or
+  airbox resonance is fixed by geometry and stays put as the engine revs.
+  Keeping them here is the single biggest reason high RPM sounds like an engine
+  rather than a transposed loop.
+- **drive** — a pre-gain into a fixed soft clipper, with a compensating
+  post-gain. Modulating the pre-gain gives variable saturation: clean off
+  throttle, gritty under load.
+- **rasp** — a high shelf that opens with load and revs.
+- **intake** — a long noise loop through a bandpass whose centre tracks RPM.
+  Above roughly 5000 rpm a real engine is largely broadband roar, which no
+  pitched layer can produce. Its playback rate stays at 1.0 on purpose, so its
+  loop point never becomes audible.
+
+A lowpass then opens with load and revs (airbox/muffler) and a compressor catches
+the peaks. One-shots deliberately sit *after* the master gain so the shift dip
+doesn't swallow the clunk that marks the shift.
 
 **`js/synth.js` — the placeholder sounds.** Rather than shipping WAVs, Phase 1
 builds the loops in the frequency domain: the buffer is a power of two long, the
@@ -81,11 +103,18 @@ integer multiple of that grid. The loop is therefore seamless *by construction* 
 no zero-crossing hunting, no click. Measured: the sample step across the join is
 smaller than the largest step inside the waveform.
 
-Spectrum knobs per layer: firing harmonics with a spectral `tilt`, `half`-order
-content for the lumpy/burbly character, `oddBias` for cross-plane V8 unevenness,
-periodic broadband `noise`, a resonant `formant`, and `grit` (tanh saturation,
-with the DC it introduces removed again). Content is capped at ~12 kHz so
-pitching up to ~2× doesn't alias.
+Spectrum knobs per layer: firing `order` (cylinders ÷ 2 on a four-stroke),
+harmonics with a spectral `tilt`, `half`-order content for the lumpy/burbly
+character, `oddBias` for cross-plane V8 unevenness, periodic broadband `noise`,
+and `grit` (tanh saturation, with the DC it introduces removed again). Content
+is capped at ~12 kHz so pitching up doesn't alias.
+
+`shimmer` is what stops the loops sounding frozen. A stationary loop repeats
+bit-identically — pitched up, a 0.7 s buffer can repeat twice a second, which
+reads as a stutter. Shimmer seeds small sidebands one and two bins either side
+of each partial; they beat against it at ~1.5 Hz, so every harmonic's level and
+phase drift over the buffer. They sit on the bin grid like everything else, so
+the loop stays seamless.
 
 Because the firing frequency gets snapped, the generator reports the base RPM it
 *actually* landed on, and the audio engine uses that value.
@@ -99,6 +128,18 @@ frame loop.
 cross-plane V8 and a synthetic "e-Sound". Switch them in the header; each one
 brings its own gearbox, rev range, torque curve and mix.
 
+Each profile has seven layers: six pitched bands (`idle`, `low`, `low_mid`,
+`mid`, `high_mid`, `top`) plus an `overrun` layer for the off-throttle voice.
+Six bands rather than three is the other half of the high-RPM fix — it keeps
+every audible layer inside roughly ×0.75…×1.25 of its recorded pitch, where
+sample transposition still sounds like an engine. The bands are deliberately
+asymmetric: a layer may be pulled well *below* its base (it just gets darker)
+but only slightly above (thin and chipmunk-ish), so the dominant layer at any
+RPM is always one being transposed *down*.
+
+The *Layer mix* panel shows each layer's live playback rate. If you are tuning
+a profile, that column is the one to watch — keep whatever is loud near ×1.
+
 ### Dropping in your own samples
 
 1. Put seamless mono loops in `sounds/` (see `sounds/README.md`).
@@ -106,22 +147,28 @@ brings its own gearbox, rev range, torque curve and mix.
 
 ```json
 {
-  "id": "full_load",
-  "file": "sounds/i4/full_load.wav",
-  "baseRpm": 5600,
-  "gain": 1.05,
-  "loadCurve": [[0, 0.2], [0.3, 0.55], [0.7, 1], [1, 1]],
-  "rpmCurve":  [[2400, 0], [3600, 0.5], [5000, 1], [7600, 1]],
+  "id": "high_mid",
+  "file": "sounds/i4/high_mid.wav",
+  "baseRpm": 4600,
+  "gain": 1.06,
+  "loadCurve": [[0, 0.51], [0.3, 0.8], [1, 1]],
+  "rpmCurve":  [[2392, 0], [2944, 0.6], [3680, 0.95], [4370, 1], [4876, 1], [5244, 0.62], [5612, 0.15], [5980, 0]],
   "generate":  { "...": "used only if the file is missing" }
 }
 ```
 
-A layer tries its `file` first and silently falls back to `generate`, listing
-what it substituted in the *Sound profile* panel. That means you can replace one
-layer at a time and hear the result immediately.
+A layer tries its `file` first and silently falls back to `generate`, and the
+*Sound profile* panel says how many layers were substituted. That means you can
+replace one layer at a time and hear the result immediately.
 
-There is no fixed layer count — add a fourth "overrun" layer, or split the rev
-range into five bands, and the mixer picks it up.
+There is no fixed layer count — drop back to three bands, or split the range
+into ten, and the mixer picks it up. Two things to keep right if you do:
+
+- `baseRpm` must match what the recording actually was, or the whole layer is
+  transposed.
+- A layer's `rpmCurve` should reach 0 before `rpm / baseRpm` leaves
+  `playbackRateRange`. Otherwise the detune guard mutes it for you and the panel
+  tells you which layer and at what RPM.
 
 3. Reload. No code changes.
 
@@ -133,12 +180,27 @@ You can also load a config file from disk with **Load config…** (handy on
 Profile level: `engine` (any `js/engine.js` default can be overridden —
 `idleRpm`, `maxRpm`, `redlineRpm`, `shiftUpRpm`, `shiftDownRpm`, `shiftTime`,
 `gearRatios`, `finalDrive`, `enginePower`, `engineBrake`, `brakePower`, `dragC`,
-`rollC`, `launchRpm`, `torqueCurve`), `playbackRateRange`, `shiftDip`,
-`loudnessCurve`, `throttleLoudnessCurve`, `tone` (`base`/`throttle`/`rpm` terms
-of the bus lowpass), `layers`, `whine`, `shift`, `pop`.
+`rollC`, `launchRpm`, `torqueCurve`), `playbackRateRange`, `maxDetuneCents`,
+`shiftDip`, `loudnessCurve`, `throttleLoudnessCurve`, `tone`
+(`base`/`throttle`/`rpm` terms of the bus lowpass), `formants`, `drive`, `rasp`,
+`intake`, `layers`, `whine`, `shift`, `pop`.
+
+| Profile key | |
+|---|---|
+| `formants` | `[{ freq, q, gain }]`, gain in dB. Fixed peaking filters — the body of the car. Never modulated. |
+| `drive` | `{ amount, rpmCurve, loadCurve }`. Soft-clip saturation that rises with load. |
+| `rasp` | `{ freq, maxGain, rpmCurve, loadCurve }`. High shelf, gain in dB. |
+| `intake` | `{ gain, q, freq: { base, rpm }, rpmCurve, loadCurve, generate }`. Broadband bed; `freq.base + rpm · freq.rpm` sets the bandpass centre. |
+| `maxDetuneCents` | How far out of tune a layer may be before it is muted. Default 35. |
 
 Layer level: `id`, `file`, `baseRpm`, `gain`, `pan`, `glide`, `loopStart`,
 `loopEnd`, `startOffset`, `loadCurve`, `rpmCurve`, `generate`.
+
+Generator (`generate`) keys: `type` (`engine`, `noise`, `clunk`, `pop`),
+`order` or `cylinders`, `baseRpm`, `duration`, `harmonics`, `tilt`, `half`,
+`oddBias`, `noise`, `noiseTilt`, `shimmer`, `grit`, `formant`/`formantQ`/
+`formantGain`, `maxFreq`, `peak`, `seed`. Prefer the profile-level `formants`
+over the per-layer `formant`: a baked resonance transposes with the sample.
 
 Every `*Curve` is a list of `[x, y]` breakpoints, linearly interpolated and
 clamped at both ends.
@@ -150,6 +212,19 @@ Regenerate the `file://` fallback copy:
 ```
 node tools/build-fallback.mjs
 ```
+
+## Tuning notes
+
+Two measurements worth re-running after changing a profile (both are quick
+scripts over `soundconfig.json` plus `js/synth.js`):
+
+- **No audible layer should be off-pitch.** Sweep RPM × throttle, and for every
+  layer at ≥0.2 normalised gain check that `rpm / baseRpm` is inside
+  `playbackRateRange`. The shipped profiles are at 0% of operating points.
+- **Nothing loud should be transposed more than about ×1.25.** The shipped
+  profiles peak at ×1.24–×1.25.
+
+Or just drive it and watch the `×` column in the *Layer mix* panel.
 
 ## Status
 

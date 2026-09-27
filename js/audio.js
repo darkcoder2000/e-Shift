@@ -7,8 +7,17 @@
  *
  * Signal flow:
  *   layer[i] -> gain -> pan -\
- *   whine osc -> gain -------> bus -> tone (lowpass) -> master -> comp -> out
- *   clunk/pop one-shots ----/
+ *   whine osc -> gain --------> bus -> formants -> drive -> rasp -> tone
+ *   intake noise -> bp -> gain /                                      |
+ *                                     master -> comp -> out <---------+
+ *   clunk/pop one-shots -------------------------> comp
+ *
+ * Everything from `bus` to `tone` is rebuilt per profile, because the formant
+ * count varies. The formants are deliberately *static*: a resonance baked into
+ * a sample transposes with it (the "sped-up tape" artifact), whereas a real
+ * exhaust or airbox resonance is fixed by geometry and stays put as the engine
+ * revs. Keeping them in the graph is what makes high RPM sound like an engine
+ * rather than a transposed loop.
  */
 (function (ES) {
   'use strict';
@@ -16,12 +25,32 @@
   var clamp = ES.clamp;
   var lerpCurve = ES.lerpCurve;
 
+  // Soft-clip curve for the drive stage. Slope at the origin is D/tanh(D), so a
+  // pre-gain of g plus a post-gain of 1/(SLOPE*g) leaves quiet signals at unity
+  // while loud ones get progressively squashed and harmonically enriched.
+  var SHAPER_D = 2.5;
+  var SHAPER_SLOPE = SHAPER_D / Math.tanh(SHAPER_D);
+  var shaperCurve = null;
+
+  function getShaperCurve() {
+    if (shaperCurve) return shaperCurve;
+    var n = 2048;
+    shaperCurve = new Float32Array(n);
+    for (var i = 0; i < n; i++) {
+      var x = (i / (n - 1)) * 2 - 1;
+      shaperCurve[i] = Math.tanh(x * SHAPER_D) / Math.tanh(SHAPER_D);
+    }
+    return shaperCurve;
+  }
+
   function EngineAudio(ctx) {
     this.ctx = ctx;
     this.layers = [];
     this.profile = null;
     this.ready = false;
     this.notes = [];
+    this._missing = [];
+    this.onNote = null;   // main.js hooks this up to the notes panel
 
     this.bus = ctx.createGain();
     this.tone = ctx.createBiquadFilter();
@@ -37,6 +66,11 @@
     this.comp.attack.value = 0.004;
     this.comp.release.value = 0.15;
 
+    // bus -> ...per-profile chain... -> tone, wired by _buildChain()
+    this.chainNodes = [];
+    this.drive = null;
+    this.rasp = null;
+    this.intake = null;
     this.bus.connect(this.tone);
     this.tone.connect(this.master);
     this.master.connect(this.comp);
@@ -58,6 +92,62 @@
     var now = this.ctx.currentTime;
     this.master.gain.setTargetAtTime(this._volume * this._shiftDip, now, 0.02);
     this.oneShotBus.gain.setTargetAtTime(this._volume, now, 0.02);
+  };
+
+  /* ---- per-profile bus chain: formants -> drive -> rasp ---- */
+  EngineAudio.prototype._buildChain = function (p) {
+    var ctx = this.ctx, i;
+
+    this.bus.disconnect();
+    for (i = 0; i < this.chainNodes.length; i++) this.chainNodes[i].disconnect();
+    this.chainNodes = [];
+    this.drive = null;
+    this.rasp = null;
+
+    var node = this.bus;
+    var fs = p.formants || [];
+    for (i = 0; i < fs.length; i++) {
+      var b = ctx.createBiquadFilter();
+      b.type = 'peaking';
+      b.frequency.value = clamp(fs[i].freq || 500, 20, ctx.sampleRate * 0.45);
+      b.Q.value = fs[i].q || 1.4;
+      b.gain.value = clamp(fs[i].gain || 0, -24, 24);
+      node.connect(b);
+      node = b;
+      this.chainNodes.push(b);
+    }
+
+    if (p.drive && p.drive.amount > 0) {
+      var pre = ctx.createGain();
+      var ws = ctx.createWaveShaper();
+      ws.curve = getShaperCurve();
+      ws.oversample = '4x';
+      var post = ctx.createGain();
+      pre.gain.value = 1;
+      post.gain.value = 1 / SHAPER_SLOPE;
+      node.connect(pre); pre.connect(ws); ws.connect(post);
+      node = post;
+      this.chainNodes.push(pre, ws, post);
+      this.drive = { pre: pre, post: post, cfg: p.drive };
+    }
+
+    if (p.rasp && p.rasp.maxGain) {
+      var hs = ctx.createBiquadFilter();
+      hs.type = 'highshelf';
+      hs.frequency.value = clamp(p.rasp.freq || 2500, 200, ctx.sampleRate * 0.45);
+      hs.gain.value = 0;
+      node.connect(hs);
+      node = hs;
+      this.chainNodes.push(hs);
+      this.rasp = { node: hs, cfg: p.rasp };
+    }
+
+    node.connect(this.tone);
+  };
+
+  EngineAudio.prototype._note = function (text) {
+    this.notes.push(text);
+    if (this.onNote) this.onNote(text);
   };
 
   /* ---- buffer sourcing: file first, generator as fallback ---- */
@@ -90,7 +180,7 @@
         };
       })
       .catch(function () {
-        self.notes.push('"' + spec.file + '" not found - using the generated placeholder.');
+        self._missing.push(spec.file);   // summarised once, in load()
         return gen();
       });
   };
@@ -104,6 +194,13 @@
       if (l.pan) l.pan.disconnect();
     }
     this.layers = [];
+    if (this.intake) {
+      try { this.intake.source.stop(); } catch (e3) { /* noop */ }
+      this.intake.source.disconnect();
+      this.intake.filter.disconnect();
+      this.intake.gain.disconnect();
+      this.intake = null;
+    }
     if (this.whine) {
       try { this.whine.osc.stop(); } catch (e2) { /* noop */ }
       this.whine.osc.disconnect();
@@ -118,7 +215,9 @@
     var self = this;
     this.dispose();
     this.notes = [];
+    this._missing = [];
     this.profile = profile;
+    this._buildChain(profile);
 
     var jobs = (profile.layers || []).map(function (spec) {
       return self._obtain(spec, basePath).then(function (res) {
@@ -160,7 +259,9 @@
           pan: pan,
           baseRpm: it.res.baseRpm || 1000,
           generated: it.res.generated,
-          level: 0
+          level: 0,
+          rate: 1,
+          warned: false
         });
       });
 
@@ -178,6 +279,32 @@
         self.whine = { osc: osc, gain: wg, filter: wf, cfg: w };
       }
 
+      // Intake / turbulence bed. Above roughly 5000 rpm a real engine is largely
+      // broadband roar, which none of the pitched layers can produce.
+      var ik = profile.intake;
+      if (ik && ik.gain > 0) {
+        var nb = ES.synth.makeNoiseLoop(self.ctx, ik.generate || {});
+        var nsrc = self.ctx.createBufferSource();
+        nsrc.buffer = nb.buffer;
+        nsrc.loop = true;               // rate stays 1.0 - see makeNoiseLoop
+        var bp = self.ctx.createBiquadFilter();
+        bp.type = 'bandpass';
+        bp.Q.value = ik.q || 1.2;
+        bp.frequency.value = 600;
+        var ng = self.ctx.createGain();
+        ng.gain.value = 0;
+        nsrc.connect(bp); bp.connect(ng); ng.connect(self.bus);
+        nsrc.start(self.ctx.currentTime + 0.02);
+        self.intake = { source: nsrc, filter: bp, gain: ng, cfg: ik };
+      }
+
+      if (self._missing.length) {
+        var dir = self._missing[0].replace(/[^/]*$/, '') || './';
+        self._note(self._missing.length + ' of ' + (profile.layers || []).length
+          + ' layers have no WAV yet - generated placeholders in use. Drop files into '
+          + dir + ' to replace them one at a time.');
+      }
+
       self.ready = true;
       return self.notes;
     });
@@ -189,24 +316,39 @@
     var ctx = this.ctx, now = ctx.currentTime, i, l;
     var p = this.profile;
     var rr = p.playbackRateRange || [0.5, 2.2];
+    var maxCents = p.maxDetuneCents || 35;
     var weights = [], sumSq = 0;
 
     for (i = 0; i < this.layers.length; i++) {
       l = this.layers[i];
       var raw = st.rpm / l.baseRpm;
       var rate = clamp(raw, rr[0], rr[1]);
-      // Fade a layer out rather than letting it sit at a wrong, clamped pitch.
-      var fit = 1;
-      if (raw > rr[1]) fit = clamp(1 - (raw / rr[1] - 1) / 0.3, 0, 1);
-      else if (raw < rr[0]) fit = clamp(1 - (rr[0] / raw - 1) / 0.3, 0, 1);
 
-      var w = (l.cfg.gain == null ? 1 : l.cfg.gain) * fit;
-      w *= lerpCurve(l.cfg.loadCurve, st.throttle);
-      w *= lerpCurve(l.cfg.rpmCurve, st.rpm);
-      w = Math.max(0, w);
+      // Once the rate is clamped the layer is playing at the wrong pitch, and a
+      // detuned engine layer beating against a correctly pitched one is the
+      // ugliest thing this mixer can do. Fade on the actual detune, so anything
+      // sour is silent well before it is audible.
+      //
+      // This is a safety net, not the crossfade: it collapses over ~2% of RPM,
+      // so a layer's rpmCurve should already reach 0 before its rate limit. The
+      // diagnostic below says so out loud when a profile gets that wrong.
+      var cents = Math.abs(1200 * Math.log2(rate / raw));
+      var fit = clamp(1 - cents / maxCents, 0, 1);
+
+      var wBase = (l.cfg.gain == null ? 1 : l.cfg.gain)
+        * lerpCurve(l.cfg.loadCurve, st.throttle)
+        * lerpCurve(l.cfg.rpmCurve, st.rpm);
+      var w = Math.max(0, wBase * fit);
       weights.push(w);
       sumSq += w * w;
 
+      if (fit < 0.999 && wBase > 0.2 && !l.warned) {
+        l.warned = true;
+        this._note('layer "' + l.id + '" is range-limited around '
+          + Math.round(st.rpm) + ' rpm - tighten its rpmCurve or add a layer.');
+      }
+
+      l.rate = rate;
       l.source.playbackRate.setTargetAtTime(rate, now, l.cfg.glide == null ? 0.03 : l.cfg.glide);
     }
 
@@ -226,6 +368,32 @@
     var fc = clamp((toneCfg.base || 700) + st.throttle * (toneCfg.throttle || 6500) + st.rpm * (toneCfg.rpm || 0.45),
       300, ctx.sampleRate * 0.45);
     this.tone.frequency.setTargetAtTime(fc, now, 0.05);
+
+    // Load-dependent grit. Quiet passages stay clean; under load the pre-gain
+    // pushes harder into the soft clipper and the engine gains rasp.
+    if (this.drive) {
+      var dc = this.drive.cfg;
+      var dAmt = dc.amount * lerpCurve(dc.rpmCurve, st.rpm) * lerpCurve(dc.loadCurve, st.throttle);
+      var pre = 1 + clamp(dAmt, 0, 1) * 5;
+      this.drive.pre.gain.setTargetAtTime(pre, now, 0.05);
+      this.drive.post.gain.setTargetAtTime(1 / (SHAPER_SLOPE * pre), now, 0.05);
+    }
+
+    if (this.rasp) {
+      var rc = this.rasp.cfg;
+      var rg = rc.maxGain * lerpCurve(rc.rpmCurve, st.rpm) * lerpCurve(rc.loadCurve, st.throttle);
+      this.rasp.node.gain.setTargetAtTime(clamp(rg, -24, 24), now, 0.05);
+    }
+
+    if (this.intake) {
+      var ic = this.intake.cfg;
+      var icf = ic.freq || {};
+      var nf = clamp((icf.base || 400) + st.rpm * (icf.rpm || 0.3), 80, ctx.sampleRate * 0.45);
+      this.intake.filter.frequency.setTargetAtTime(nf, now, 0.05);
+      var ig = ic.gain * lerpCurve(ic.rpmCurve, st.rpm) * lerpCurve(ic.loadCurve, st.throttle) * overall;
+      this.intake.gain.gain.setTargetAtTime(ig, now, 0.04);
+      this.intake.level = ig;
+    }
 
     if (this.whine) {
       var w2 = this.whine.cfg;
